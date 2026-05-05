@@ -1,0 +1,38 @@
+# Build outputs
+build/
+out/
+target/
+
+# Gradle
+.gradle/
+gradle-app.setting
+!gradle-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.project
+.classpath
+.settings/
+
+# Minecraft runtime
+run/
+
+# Logs
+*.log
+build*.log
+build_*.txt
+compile_error.txt
+out.txt
+out2.txt
+dump.txt
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local tooling
+.claude/

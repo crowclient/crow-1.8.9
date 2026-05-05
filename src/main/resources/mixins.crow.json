@@ -1,0 +1,26 @@
+{
+    "required": true,
+    "package": "crow.client.mixin.mixins",
+    "refmap": "mixins.crow.refmap.json",
+    "compatibilityLevel": "JAVA_8",
+    "mixins": [
+        "MixinEntity",
+        "MixinEntity2",
+        "MixinEntityPlayer",
+        "MixinEntityPlayerSP",
+        "MixinEntityRenderer",
+        "MixinFontRenderer",
+        "MixinGuiIngame",
+        "MixinGuiMainMenu",
+        "MixinGuiUtilRenderComponents",
+        "MixinItemRenderer",
+        "MixinMinecraft",
+        "MixinNetworkManager",
+        "MixinEntityLivingBase",
+        "MixinGuiNewChat",
+        "MixinGuiTextField"
+    ],
+    "client": [
+        "IMinecraft"
+    ]
+}

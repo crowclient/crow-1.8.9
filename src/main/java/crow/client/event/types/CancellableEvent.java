@@ -1,0 +1,23 @@
+package crow.client.event.types;
+
+public class CancellableEvent {
+
+    private boolean cancelled;
+
+    public boolean isCancelled() {
+        return cancelled;
+    }
+
+    public void setCancelled(boolean cancelled) {
+        this.cancelled = cancelled;
+    }
+
+    public void setCanceled(boolean cancelled) {
+        setCancelled(cancelled);
+    }
+
+    public void cancel() {
+        setCancelled(true);
+    }
+
+}

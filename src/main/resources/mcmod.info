@@ -1,0 +1,17 @@
+[
+    {
+        "modid": "crow",
+        "name": "Crow",
+        "description": "Crow client for Minecraft 1.8.9.",
+        "version": "1.2.4",
+        "url": "",
+        "updateUrl": "",
+        "authorList": [
+            "Crow"
+        ],
+        "credits": "Crow",
+        "logoFile": "assets/crow/crow.png",
+        "screenshots": [],
+        "dependencies": []
+    }
+]
