@@ -1,6 +1,6 @@
 # Crow
 
-Crow is a PvP and utility mod for Minecraft 1.8.x. It supports Forge and Feather, adding quality-of-life improvements and bug fixes.
+Crow is a PvP and utility mod for Minecraft 1.8.x. It supports Forge, adding quality-of-life improvements and bug fixes.
 
 ## How to build it yourself
 
