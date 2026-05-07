@@ -46,7 +46,12 @@ public class GuiModule extends Module {
         }
 
         applyGuiScale();
-        mc.displayGuiScreen(Crow.compactGui);
+        mc.displayGuiScreen(Crow.clickGui);
+
+        if (mc.currentScreen != Crow.clickGui) {
+            Utils.Player.sendMessageToSelf("&cGui failed to open. currentScreen="
+                    + (mc.currentScreen == null ? "null" : mc.currentScreen.getClass().getSimpleName()));
+        }
     }
 
     @Override

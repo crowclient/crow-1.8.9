@@ -27,8 +27,8 @@ public class CrowMainMenu extends GuiScreen implements GuiYesNoCallback {
 
     public static boolean redirecting = false;
 
-    private static final ResourceLocation CROW_ICON       = RenderUtils.getResourcePath("/assets/crow/crow.png");
-    private static final ResourceLocation MENU_BACKGROUND = RenderUtils.getResourcePath("/assets/crow/menubg.jpg");
+    private static ResourceLocation crowIcon;
+    private static ResourceLocation menuBackground;
 
     private static final int PARTICLE_COUNT  = 36;
     private static final int PANEL_WIDTH     = 296;
@@ -164,7 +164,8 @@ public class CrowMainMenu extends GuiScreen implements GuiYesNoCallback {
 
         drawGradientRect(0, 0, width, height, 0xFF090B11, 0xFF121722);
 
-        if (MENU_BACKGROUND != null) {
+        ResourceLocation background = getMenuBackground();
+        if (background != null) {
             drawParallaxBackground(0.025F);
         } else {
             drawFallbackAtmosphere();
@@ -195,7 +196,7 @@ public class CrowMainMenu extends GuiScreen implements GuiYesNoCallback {
 
         GlStateManager.enableBlend();
         GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
-        mc.getTextureManager().bindTexture(MENU_BACKGROUND);
+        mc.getTextureManager().bindTexture(getMenuBackground());
         GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
         GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
 
@@ -295,12 +296,13 @@ public class CrowMainMenu extends GuiScreen implements GuiYesNoCallback {
         int rowX = panelX + (panelWidth - rowWidth) / 2;
         int rowY = panelY + 18;
 
-        if (CROW_ICON != null) {
+        ResourceLocation icon = getCrowIcon();
+        if (icon != null) {
             float a = alpha / 255.0F;
             GlStateManager.enableBlend();
             GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
             GlStateManager.color(1.0F, 1.0F, 1.0F, a);
-            mc.getTextureManager().bindTexture(CROW_ICON);
+            mc.getTextureManager().bindTexture(icon);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
             drawModalRectWithCustomSizedTexture(rowX, rowY, 0, 0, iconSize, iconSize, iconSize, iconSize);
@@ -396,6 +398,20 @@ public class CrowMainMenu extends GuiScreen implements GuiYesNoCallback {
     }
 
     private static int clamp255(int v) { return v < 0 ? 0 : (v > 255 ? 255 : v); }
+
+    private static ResourceLocation getCrowIcon() {
+        if (crowIcon == null) {
+            crowIcon = RenderUtils.getResourcePath("/assets/crow/crow.png");
+        }
+        return crowIcon;
+    }
+
+    private static ResourceLocation getMenuBackground() {
+        if (menuBackground == null) {
+            menuBackground = RenderUtils.getResourcePath("/assets/crow/menubg.jpg");
+        }
+        return menuBackground;
+    }
 
     private int blendColor(int from, int to, float progress) {
         progress = Math.max(0.0F, Math.min(1.0F, progress));

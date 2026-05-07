@@ -21,8 +21,7 @@ public class Notification {
     static final int GAP = 4;
     private static final int ICON_SIZE = 12;
     private static final int BG = 0x101115;
-    private static final ResourceLocation ICON =
-            RenderUtils.getResourcePath("/assets/crow/notification.png");
+    private static ResourceLocation icon;
 
     private final long fadeIn;
     private final long hold;
@@ -172,8 +171,9 @@ public class Notification {
             RenderUtils.drawRoundedGlow(x, y, x + width, y + height, radius, glowColor, (int)(gr * gi));
         }
 
-        if (ICON != null) {
-            Minecraft.getMinecraft().getTextureManager().bindTexture(ICON);
+        ResourceLocation notificationIcon = getIcon();
+        if (notificationIcon != null) {
+            Minecraft.getMinecraft().getTextureManager().bindTexture(notificationIcon);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
             GL11.glColor4f(1.0F, 1.0F, 1.0F, anim);
@@ -206,6 +206,13 @@ public class Notification {
 
         GlStateManager.color(1F, 1F, 1F, 1F);
         GL11.glColor4f(1F, 1F, 1F, 1F);
+    }
+
+    private static ResourceLocation getIcon() {
+        if (icon == null) {
+            icon = RenderUtils.getResourcePath("/assets/crow/notification.png");
+        }
+        return icon;
     }
 
     private void renderMinimal(int stackIndex) {

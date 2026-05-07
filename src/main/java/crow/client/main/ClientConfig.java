@@ -56,6 +56,10 @@ public class ClientConfig {
     public void applyConfig() {
         applyingConfig = true;
         try {
+            if (config == null) {
+                return;
+            }
+
             Utils.URLS.hypixelApiKey = config.get("apikey").getAsString();
             loadClickGuiCoords(config.get("clickgui").getAsJsonObject().get("catPos").getAsJsonObject());
             Crow.configManager.loadConfigByName(config.get("currentconfig").getAsString());

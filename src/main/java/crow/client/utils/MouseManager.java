@@ -1,11 +1,13 @@
 package crow.client.utils;
 
 import crow.client.main.Crow;
+import crow.client.event.impl.ForgeEvent;
 import crow.client.module.modules.world.AntiBot;
 import net.minecraft.client.Minecraft;
 import net.minecraft.entity.Entity;
 import net.minecraftforge.client.event.MouseEvent;
-import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
+import net.minecraftforge.fml.common.ObfuscationReflectionHelper;
+import org.lwjgl.input.Mouse;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -15,18 +17,19 @@ public class MouseManager {
     private static final List<Long> rightClicks = new ArrayList<>();
     public static long leftClickTimer;
     public static long rightClickTimer;
+    private static boolean wasLeftDown;
+    private static boolean wasRightDown;
 
-    @SubscribeEvent
-    public void onMouseUpdate(MouseEvent mouse) {
-        if (mouse.buttonstate) {
-            if (mouse.button == 0) {
-                addLeftClick();
-                if (Crow.debugger && Minecraft.getMinecraft().objectMouseOver != null) {
-                    Entity en = Minecraft.getMinecraft().objectMouseOver.entityHit;
-                    if (en == null) {
-                        return;
-                    }
+    public static void update() {
+        boolean leftDown = Mouse.isButtonDown(0);
+        boolean rightDown = Mouse.isButtonDown(1);
 
+        if (leftDown && !wasLeftDown) {
+            addLeftClick();
+            postMouseEvent(0, true);
+            if (Crow.debugger && Minecraft.getMinecraft().objectMouseOver != null) {
+                Entity en = Minecraft.getMinecraft().objectMouseOver.entityHit;
+                if (en != null) {
                     Utils.Player.sendMessageToSelf("&7&m-------------------------");
                     Utils.Player.sendMessageToSelf("n: " + en.getName());
                     Utils.Player.sendMessageToSelf("rn: " + en.getName().replace("§", "%"));
@@ -34,10 +37,25 @@ public class MouseManager {
                     Utils.Player.sendMessageToSelf("rd: " + en.getDisplayName().getUnformattedText().replace("§", "%"));
                     Utils.Player.sendMessageToSelf("b?: " + AntiBot.bot(en));
                 }
-            } else if (mouse.button == 1) {
-                addRightClick();
             }
+        }
 
+        if (rightDown && !wasRightDown) {
+            addRightClick();
+            postMouseEvent(1, true);
+        }
+
+        wasLeftDown = leftDown;
+        wasRightDown = rightDown;
+    }
+
+    private static void postMouseEvent(int button, boolean state) {
+        try {
+            MouseEvent event = new MouseEvent();
+            ObfuscationReflectionHelper.setPrivateValue(MouseEvent.class, event, button, "button");
+            ObfuscationReflectionHelper.setPrivateValue(MouseEvent.class, event, state, "buttonstate");
+            Crow.eventBus.post(new ForgeEvent(event));
+        } catch (Throwable ignored) {
         }
     }
 

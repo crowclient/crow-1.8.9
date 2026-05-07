@@ -53,6 +53,9 @@ public class BindCommand extends Command {
         if (keyName.equalsIgnoreCase("none") || keyName.equalsIgnoreCase("clear")
                 || keyName.equalsIgnoreCase("0") || keyName.equalsIgnoreCase("unbind")) {
             mod.setbind(0);
+            if (Crow.clientConfig != null) {
+                Crow.clientConfig.saveConfig();
+            }
             Utils.Player.sendMessageToSelf("&aCleared bind for &f" + mod.getName());
             NotificationManager.show(new Notification(NotificationType.INFO, "Bind Cleared", mod.getName(), 1));
             return;
@@ -73,6 +76,9 @@ public class BindCommand extends Command {
         }
 
         mod.setbind(keyCode);
+        if (Crow.clientConfig != null) {
+            Crow.clientConfig.saveConfig();
+        }
         String keyStr = Keyboard.getKeyName(keyCode);
         Utils.Player.sendMessageToSelf("&aBound &f" + mod.getName() + " &ato &f" + keyStr);
         NotificationManager.show(new Notification(NotificationType.INFO, "Bind Set", mod.getName() + " \u2192 " + keyStr, 1));
