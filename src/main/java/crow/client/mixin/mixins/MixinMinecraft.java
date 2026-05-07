@@ -7,18 +7,40 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import crow.client.event.impl.GameLoopEvent;
 import crow.client.main.Crow;
+import crow.client.module.Module;
 import crow.client.module.modules.other.NameHider;
+import crow.client.utils.Utils;
 import crow.client.utils.GlowUtil;
 import net.minecraft.client.Minecraft;
+import org.lwjgl.input.Keyboard;
 
 @Mixin(priority = 1005, value = Minecraft.class)
 public class MixinMinecraft {
     private static int crow$lastGlowWidth = -1;
     private static int crow$lastGlowHeight = -1;
+    private static boolean crow$guiBindHeld;
 
     @Inject(method = "runTick", at = @At("HEAD"))
     public void onTick(CallbackInfo ci) {
+        Crow.init();
         Minecraft minecraft = (Minecraft) (Object) this;
+
+        if (Utils.Player.isPlayerInGame() && minecraft.currentScreen == null) {
+            Module guiModule = Crow.moduleManager.getModuleByName("Gui");
+            boolean guiPressed = guiModule != null && guiModule.getKeycode() != 0
+                    && Keyboard.isKeyDown(guiModule.getKeycode());
+            if (guiPressed && !crow$guiBindHeld) {
+                minecraft.displayGuiScreen(Crow.clickGui);
+                if (minecraft.currentScreen != Crow.clickGui) {
+                    Utils.Player.sendMessageToSelf("&cGui open failed from runTick. currentScreen="
+                            + (minecraft.currentScreen == null ? "null" : minecraft.currentScreen.getClass().getSimpleName()));
+                }
+            }
+            crow$guiBindHeld = guiPressed;
+        } else {
+            crow$guiBindHeld = false;
+        }
+
         if (minecraft.displayWidth != crow$lastGlowWidth || minecraft.displayHeight != crow$lastGlowHeight) {
             crow$lastGlowWidth = minecraft.displayWidth;
             crow$lastGlowHeight = minecraft.displayHeight;

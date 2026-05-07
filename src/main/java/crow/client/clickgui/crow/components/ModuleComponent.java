@@ -26,8 +26,7 @@ public class ModuleComponent extends Component {
     private static final int TEXT_MUTED = 0xFF9A9AA4;
     private static final int TOOLTIP_BG = 0xEE1A1A1A;
     private static final int HOVER_OVERLAY = 0x22FFFFFF;
-    private static final ResourceLocation DROPDOWN_ARROW =
-            RenderUtils.getResourcePath("/assets/crow/crowclickgui/arrow_down.png");
+    private static ResourceLocation dropdownArrow;
 
     public static final int MODULE_HEIGHT = 34;
 
@@ -180,6 +179,7 @@ public class ModuleComponent extends Component {
     }
 
     private void drawArrow(boolean settingsOpen) {
+        getDropdownArrow();
 
         arrowAnim.setTarget(settingsOpen ? 180.0F : 0.0F);
         arrowAnim.update();
@@ -190,6 +190,13 @@ public class ModuleComponent extends Component {
         int centerY = y + (MODULE_HEIGHT / 2) - 1;
         crow.client.utils.RenderUtils.drawChevronRotated(
                 centerX, centerY, size, arrowRotation, 0xFFFFFFFF, 1.3F);
+    }
+
+    private static ResourceLocation getDropdownArrow() {
+        if (dropdownArrow == null) {
+            dropdownArrow = RenderUtils.getResourcePath("/assets/crow/crowclickgui/arrow_down.png");
+        }
+        return dropdownArrow;
     }
 
     @Override

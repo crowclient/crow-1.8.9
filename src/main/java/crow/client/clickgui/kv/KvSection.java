@@ -47,7 +47,7 @@ public class KvSection {
 	}
 
 	public void drawSection(int mouseX, int mouseY, float partialTicks) {
-		RenderUtils.drawBorderedRoundedRect(sectionX, sectionY, (float) (sectionX + width), sectionY + height, 6, 2, Utils.Client.rainbowDraw(1, 0), Crow.kvCompactGui.getCurrentSection() == this ? 0xFF000000: isMouseOver(mouseX, mouseY) ? 0xC0FFFFFF : 0x40FFFFFF);
+		RenderUtils.drawBorderedRoundedRect(sectionX, sectionY, (float) (sectionX + width), sectionY + height, 6, 2, Utils.Client.rainbowDraw(1, 0), Crow.getKvCompactGui().getCurrentSection() == this ? 0xFF000000: isMouseOver(mouseX, mouseY) ? 0xC0FFFFFF : 0x40FFFFFF);
 		FontUtil.normal.drawCenteredString(name, (float) (sectionX + (width/2)), (sectionY + (height/2)) -1, 0xFFFFFFFF);
 	}
 
@@ -57,7 +57,7 @@ public class KvSection {
 
 	public boolean mouseClicked(int x, int y, int button) {
 		if ((button == 0) && isMouseOver(x, y)) {
-			Crow.kvCompactGui.setCurrentSection(this);
+			Crow.getKvCompactGui().setCurrentSection(this);
 			return true;
 		}
 		return false;

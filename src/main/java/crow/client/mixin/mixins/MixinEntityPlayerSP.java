@@ -181,15 +181,38 @@ public abstract class MixinEntityPlayerSP extends AbstractClientPlayer {
 
     @Overwrite
     public void sendChatMessage(String message) {
-        if (message != null && message.startsWith(".")) {
-            String[] args = message.substring(1).split(" ");
-            String commandName = args[0];
-            String[] commandArgs = new String[args.length - 1];
-            System.arraycopy(args, 1, commandArgs, 0, commandArgs.length);
-            Crow.commandManager.executeCommand(commandName, commandArgs);
-        } else {
-            this.sendQueue.addToSendQueue(new net.minecraft.network.play.client.C01PacketChatMessage(message));
+        if (message == null) {
+            return;
         }
+
+        if (message.startsWith(".")) {
+            String raw = message.substring(1).trim();
+            if (raw.isEmpty()) {
+                return;
+            }
+
+            try {
+                if (Crow.commandManager == null) {
+                    Crow.commandManager = new crow.client.command.CommandManager();
+                }
+
+                String[] args = raw.split(" ");
+                String commandName = args[0];
+                String[] commandArgs = new String[args.length - 1];
+                System.arraycopy(args, 1, commandArgs, 0, commandArgs.length);
+                Crow.commandManager.executeCommand(commandName, commandArgs);
+            } catch (Throwable t) {
+                System.err.println("[Crow] Command execution failed for: " + message);
+                t.printStackTrace();
+                try {
+                    crow.client.utils.Utils.Player.sendMessageToSelf("&cCommand failed. Check the log for details.");
+                } catch (Throwable ignored) {
+                }
+            }
+            return;
+        }
+
+        this.sendQueue.addToSendQueue(new net.minecraft.network.play.client.C01PacketChatMessage(message));
     }
 
     @Override

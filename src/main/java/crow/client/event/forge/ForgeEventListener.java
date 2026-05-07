@@ -6,22 +6,24 @@ import crow.client.event.impl.EarlyRender2DEvent;
 import crow.client.event.impl.Render2DEvent;
 import crow.client.main.Crow;
 import crow.client.module.Module;
+import crow.client.utils.MouseManager;
 import crow.client.utils.RenderUtils;
 import crow.client.utils.Utils;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraftforge.client.event.ClientChatReceivedEvent;
 import net.minecraftforge.client.event.DrawBlockHighlightEvent;
-import net.minecraftforge.client.event.MouseEvent;
 import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.event.entity.EntityJoinWorldEvent;
 import net.minecraftforge.event.entity.living.LivingEvent;
 import net.minecraftforge.event.entity.player.AttackEntityEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
+import org.lwjgl.input.Keyboard;
 import org.lwjgl.opengl.GL11;
 
 public class ForgeEventListener {
+    private boolean crowGuiBindHeld;
 
     @SubscribeEvent
     public void onTick(TickEvent.ClientTickEvent e) {
@@ -42,6 +44,20 @@ public class ForgeEventListener {
     public void onRenderTick(TickEvent.RenderTickEvent e) {
         try {
         if (e.phase == TickEvent.Phase.END) {
+            MouseManager.update();
+
+            if (Utils.Player.isPlayerInGame() && Minecraft.getMinecraft().currentScreen == null) {
+                Module guiModule = Crow.moduleManager.getModuleByName("Gui");
+                boolean guiPressed = guiModule != null && guiModule.getKeycode() != 0
+                        && Keyboard.isKeyDown(guiModule.getKeycode());
+                if (guiPressed && !crowGuiBindHeld) {
+                    Minecraft.getMinecraft().displayGuiScreen(Crow.clickGui);
+                }
+                crowGuiBindHeld = guiPressed;
+            } else {
+                crowGuiBindHeld = false;
+            }
+
             if (Utils.Player.isPlayerInGame())
                 for (Module module : Crow.moduleManager.getModules())
                     if (Minecraft.getMinecraft().currentScreen == null)
@@ -122,11 +138,6 @@ public class ForgeEventListener {
     @SubscribeEvent
     public void onHit(AttackEntityEvent e) {
         try { Crow.eventBus.post(new ForgeEvent(e)); } catch (Throwable t) { logHandlerError("onHit", null, t); }
-    }
-
-    @SubscribeEvent
-    public void onMouseUpdate(MouseEvent e) {
-        try { Crow.eventBus.post(new ForgeEvent(e)); } catch (Throwable t) { logHandlerError("onMouseUpdate", null, t); }
     }
 
     @SubscribeEvent

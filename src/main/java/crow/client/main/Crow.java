@@ -76,6 +76,7 @@ public class Crow {
         }
     });
     public static final Minecraft mc = Minecraft.getMinecraft();
+    private static boolean initialized;
 
     static {
         osName = System.getProperty("os.name").toLowerCase();
@@ -110,10 +111,13 @@ public class Crow {
         return newDir;
     }
 
-    public static void init() {
+    public static synchronized void init() {
+        if (initialized) {
+            return;
+        }
+
         register(new Crow());
         register(new DebugInfoRenderer());
-        register(new MouseManager());
         register(new PingChecker());
         register(new ForgeEventListener());
         eventBus.register(NotificationRenderer.notificationRenderer);
@@ -126,11 +130,10 @@ public class Crow {
 
         commandManager = new CommandManager();
         clickGui = new ClickGui();
-        kvCompactGui = new KvCompactGui();
-        compactGui = new CompactGui();
         configManager = new ConfigManager();
         clientConfig = new ClientConfig();
         clientConfig.applyConfig();
+        initialized = true;
 
     }
 
@@ -155,5 +158,19 @@ public class Crow {
 
     public static ScheduledExecutorService getExecutor() {
         return ex;
+    }
+
+    public static CompactGui getCompactGui() {
+        if (compactGui == null) {
+            compactGui = new CompactGui();
+        }
+        return compactGui;
+    }
+
+    public static KvCompactGui getKvCompactGui() {
+        if (kvCompactGui == null) {
+            kvCompactGui = new KvCompactGui();
+        }
+        return kvCompactGui;
     }
 }

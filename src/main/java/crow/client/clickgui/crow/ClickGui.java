@@ -37,7 +37,7 @@ public class ClickGui extends GuiScreen {
     private static boolean firstOpenDone = false;
     private long loadingStart;
     private static final long LOADING_DURATION = 600L;
-    private static final ResourceLocation CROW_ICON = RenderUtils.getResourcePath("/assets/crow/crow.png");
+    private static ResourceLocation crowIcon;
 
     public static int screenWidth = 1;
     public static int screenHeight = 1;
@@ -145,7 +145,8 @@ public class ClickGui extends GuiScreen {
 
                 drawRect(0, 0, width, height, 0xFF101014);
 
-                if (CROW_ICON != null) {
+                ResourceLocation icon = getCrowIcon();
+                if (icon != null) {
                     int logoSize = 48;
                     int logoX = (width - logoSize) / 2;
                     int logoY = (height - logoSize) / 2 - 10;
@@ -155,7 +156,7 @@ public class ClickGui extends GuiScreen {
                     GlStateManager.enableBlend();
                     GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
                     GlStateManager.color(1.0F, 1.0F, 1.0F, Math.max(0.0F, logoAlpha));
-                    mc.getTextureManager().bindTexture(CROW_ICON);
+                    mc.getTextureManager().bindTexture(icon);
                     GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
                     GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
                     Gui.drawModalRectWithCustomSizedTexture(logoX, logoY, 0, 0, logoSize, logoSize, logoSize, logoSize);
@@ -226,6 +227,13 @@ public class ClickGui extends GuiScreen {
                 return;
             }
         }
+    }
+
+    private static ResourceLocation getCrowIcon() {
+        if (crowIcon == null) {
+            crowIcon = RenderUtils.getResourcePath("/assets/crow/crow.png");
+        }
+        return crowIcon;
     }
 
     @Override

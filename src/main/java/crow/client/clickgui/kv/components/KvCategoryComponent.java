@@ -55,7 +55,7 @@ public class KvCategoryComponent extends KvComponent {
     		case 1:
 				if (!childCategories.isEmpty()) {
 					open = !open;
-					Crow.kvCompactGui.initGui();
+					Crow.getKvCompactGui().initGui();
 				}
 				break;
     	}
