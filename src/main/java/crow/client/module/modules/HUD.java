@@ -7,8 +7,8 @@ import crow.client.utils.Utils;
 
 public class HUD extends Module {
     public static TickSetting editPosition, dropShadow, logo;
-    public static TickSetting enableBlur, enableGlow, customChat;
-    public static SliderSetting blurRadius, glowRadius, glowIntensity;
+    public static TickSetting enableBlur, customChat;
+    public static SliderSetting blurRadius;
 
     private static int hudX = 5;
     private static int hudY = 70;
@@ -29,11 +29,6 @@ public class HUD extends Module {
         this.registerSetting(enableBlur = new TickSetting("Enable Blur", false));
         this.registerSetting(blurRadius = new SliderSetting("Blur Radius", 5, 1, 20, 1));
         blurRadius.visibleWhen(() -> enableBlur != null && enableBlur.isToggled());
-        this.registerSetting(enableGlow = new TickSetting("Enable Glow", true));
-        this.registerSetting(glowRadius = new SliderSetting("Glow Radius", 10, 1, 30, 1));
-        glowRadius.visibleWhen(() -> enableGlow != null && enableGlow.isToggled());
-        this.registerSetting(glowIntensity = new SliderSetting("Glow Intensity", 0.8, 0.1, 1.0, 0.1));
-        glowIntensity.visibleWhen(() -> enableGlow != null && enableGlow.isToggled());
         this.registerSetting(customChat = new TickSetting("Custom Chat", true));
 
         showedError = false;

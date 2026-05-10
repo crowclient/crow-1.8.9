@@ -167,6 +167,7 @@ public class ModuleManager {
         addModule(new Backtrack());
         addModule(new AutoRod());
         addModule(new BlockIn());
+        addModule(new BlockHit());
         addModule(new Clutch().withHidden(true));
         addModule(new AntiFireball());
 
@@ -188,7 +189,7 @@ public class ModuleManager {
         addModule(new CustomTitle().withHidden(true));
         addModule(new Crosshair().withHidden(true));
         addModule(new Radar());
-        addModule(new Viewmodel().withHidden(true));
+        addModule(new Viewmodel());
         addModule(new BedDefense());
         addModule(new Indicators());
         addModule(new Notifications());

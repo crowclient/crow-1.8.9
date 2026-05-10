@@ -30,7 +30,7 @@ public class LeftClicker extends Module {
 
     public static DoubleSliderSetting leftCPS;
     public static SliderSetting jitterLeft;
-    public static TickSetting weaponOnly, breakBlocks, blockHit;
+    public static TickSetting weaponOnly, breakBlocks;
     public static TickSetting jitterSound;
 
     public static boolean autoClickerEnabled;
@@ -48,25 +48,11 @@ public class LeftClicker extends Module {
 
     private boolean breakHeld;
 
-    private boolean blocking;
-    private long blockHitTime;
-
     private float jitterPhaseYaw, jitterPhasePitch;
-
-    private long sustainedClickStart;
-
-    private double driftedMeanCps = -1.0;
-    private long driftStepAt = 0L;
 
     private boolean jitterLoopPlaying;
     private long jitterCutoutEnd;
     private long jitterNextCutout;
-
-    private long pauseUntil;
-
-    private long nextBreatherRollAt;
-
-    private long nextServerAirSwingAt;
 
     private long lastAttackMs;
 
@@ -76,7 +62,6 @@ public class LeftClicker extends Module {
         this.registerSetting(jitterLeft  = new SliderSetting("Jitter left", 0.0D, 0.0D, 3.0D, 0.1D));
         this.registerSetting(weaponOnly  = new TickSetting("Weapon only", false));
         this.registerSetting(breakBlocks = new TickSetting("Break blocks", false));
-        this.registerSetting(blockHit    = new TickSetting("Block Hit", false));
         this.registerSetting(jitterSound = new TickSetting("Jitter click sound", false));
         autoClickerEnabled = false;
     }
@@ -92,18 +77,11 @@ public class LeftClicker extends Module {
         clickHistory.clear();
         measuredCps = 0.0;
         lastClickTick = -1;
-        sustainedClickStart = 0L;
-        driftedMeanCps = -1.0;
-        driftStepAt = 0L;
         breakHeld = false;
-        blocking = false;
         target = null;
         jitterLoopPlaying = false;
         jitterCutoutEnd = 0L;
         jitterNextCutout = 0L;
-        pauseUntil = 0L;
-        nextBreatherRollAt = 0L;
-        nextServerAirSwingAt = 0L;
         lastAttackMs = 0L;
         autoClickerEnabled = true;
     }
@@ -114,24 +92,14 @@ public class LeftClicker extends Module {
         clickHistory.clear();
         measuredCps = 0.0;
         lastClickTick = -1;
-        sustainedClickStart = 0L;
-        driftedMeanCps = -1.0;
-        driftStepAt = 0L;
         breakHeld = false;
         target = null;
         jitterLoopPlaying = false;
-        pauseUntil = 0L;
-        nextBreatherRollAt = 0L;
-        nextServerAirSwingAt = 0L;
         lastAttackMs = 0L;
         autoClickerEnabled = false;
         try { crow.client.utils.SoundUtils.stopLoop(); } catch (Throwable ignored) {}
         if (mc.gameSettings != null) {
             KeyBinding.setKeyBindState(mc.gameSettings.keyBindAttack.getKeyCode(), false);
-            if (blocking) {
-                KeyBinding.setKeyBindState(mc.gameSettings.keyBindUseItem.getKeyCode(), false);
-                blocking = false;
-            }
         }
     }
 
@@ -142,12 +110,6 @@ public class LeftClicker extends Module {
         if (event instanceof AttackEntityEvent) {
             target = ((AttackEntityEvent) event).entityLiving;
             lastAttackMs = System.currentTimeMillis();
-            if (blockHit.isToggled() && Utils.Player.isPlayerHoldingWeapon()
-                    && mc.thePlayer != null && target != null) {
-                blocking = true;
-                blockHitTime = System.currentTimeMillis();
-                KeyBinding.setKeyBindState(mc.gameSettings.keyBindUseItem.getKeyCode(), true);
-            }
             return;
         }
 
@@ -155,7 +117,6 @@ public class LeftClicker extends Module {
             TickEvent.RenderTickEvent ev = (TickEvent.RenderTickEvent) event;
             if (ev.phase == TickEvent.Phase.START) {
                 tickJitterLoop();
-                tickBlockHitRelease();
             }
 
             return;
@@ -179,51 +140,29 @@ public class LeftClicker extends Module {
 
         if (!Mouse.isButtonDown(0)) {
             nextClickAt = 0L;
-            sustainedClickStart = 0L;
             lastClickTick = -1;
-            pauseUntil = 0L;
-            nextBreatherRollAt = 0L;
             return;
         }
 
         long now = System.currentTimeMillis();
-        if (sustainedClickStart == 0L) sustainedClickStart = now;
 
         if (weaponOnly.isToggled() && !Utils.Player.isPlayerHoldingWeapon()) return;
         if (handleBreakBlockHold()) return;
         applySmoothJitter();
 
-        rollMaybeBreather(now);
-
-        if (pauseUntil != 0L && now < pauseUntil) return;
-        if (pauseUntil != 0L && now >= pauseUntil) pauseUntil = 0L;
-
         if (nextClickAt != 0L && now < nextClickAt) return;
-        if (lastClickTick == mc.thePlayer.ticksExisted) return;
+
+        // Tick-gate only when configured CPS is at or below 20 — above 20 is
+        // jitter-click territory and needs multiple clicks per game tick.
+        if (leftCPS.getInputMax() <= 20.0
+                && lastClickTick == mc.thePlayer.ticksExisted) {
+            return;
+        }
 
         fireClick();
         lastClickTick = mc.thePlayer.ticksExisted;
         clickHistory.addLast(now);
-        nextClickAt = now + sampleClickIntervalMs(now);
-
-        if (target != null && rand.nextInt(100) < 18) {
-            pauseUntil = now + 60L + rand.nextInt(120);
-        }
-    }
-
-    private void rollMaybeBreather(long now) {
-        if (sustainedClickStart == 0L) return;
-
-        if (now - sustainedClickStart < 700L) return;
-        if (nextBreatherRollAt == 0L) {
-            nextBreatherRollAt = now + 800L + rand.nextInt(1700);
-            return;
-        }
-        if (now < nextBreatherRollAt) return;
-        if (rand.nextInt(100) < 22) {
-            pauseUntil = now + 80L + rand.nextInt(200);
-        }
-        nextBreatherRollAt = now + 800L + rand.nextInt(1700);
+        nextClickAt = now + sampleClickIntervalMs();
     }
 
     private void fireClick() {
@@ -249,58 +188,25 @@ public class LeftClicker extends Module {
         measuredCps += (instant - measuredCps) * 0.18;
     }
 
-    private long sampleClickIntervalMs(long now) {
+    /**
+     * Sample the next click interval so that the long-run measured CPS
+     * matches the slider exactly. CPS is drawn uniformly from [min, max] each
+     * click; a small Gaussian wobble (±~6%) on the resulting interval keeps
+     * consecutive intervals from being identical without biasing the mean.
+     */
+    private long sampleClickIntervalMs() {
         double lo = leftCPS.getInputMin();
         double hi = leftCPS.getInputMax();
         if (lo > hi) { double t = lo; lo = hi; hi = t; }
-        if (lo <= 0) lo = Math.min(hi, 1);
-        if (hi <= 0) hi = 1;
-        double range = hi - lo;
+        if (lo < 0.5) lo = 0.5;
+        if (hi < lo) hi = lo;
 
-        double fatigue = 0.0;
-        if (sustainedClickStart > 0L) {
-            long sustainedMs = now - sustainedClickStart;
-            fatigue = Math.max(0.0, Math.min(1.0, (sustainedMs - 2500.0) / 5000.0));
-        }
+        double cps = lo + rand.nextDouble() * (hi - lo);
+        double meanDelayMs = 1000.0 / cps;
 
-        if (driftedMeanCps <= 0) {
-            driftedMeanCps = (lo + hi) * 0.5;
-        }
-        if (now >= driftStepAt) {
-
-            double preferred = ((lo + hi) * 0.5) - fatigue * range * 0.30;
-            double step = (rand.nextDouble() - rand.nextDouble()) * range * 0.20;
-            step += (preferred - driftedMeanCps) * 0.25;
-            driftedMeanCps += step;
-
-            double softLo = lo - range * 0.15;
-            double softHi = hi + range * 0.15;
-            driftedMeanCps = Math.max(softLo, Math.min(softHi, driftedMeanCps));
-            if (driftedMeanCps < 0.5) driftedMeanCps = 0.5;
-            driftStepAt = now + 400L + rand.nextInt(800);
-        }
-
-        double meanDelayMs = 1000.0 / Math.max(0.5, driftedMeanCps);
-
-        double roll = rand.nextDouble();
-        double delayMs;
-        if (roll < 0.05) {
-
-            delayMs = meanDelayMs * (0.50 + rand.nextDouble() * 0.25);
-        } else if (roll < 0.12) {
-
-            delayMs = meanDelayMs * (1.50 + rand.nextDouble() * 1.10);
-        } else if (roll < 0.15) {
-
-            delayMs = meanDelayMs * (3.00 + rand.nextDouble() * 2.00);
-        } else {
-
-            double sigma = 0.14 + rand.nextDouble() * 0.18;
-            double n = rand.nextGaussian();
-            delayMs = meanDelayMs * Math.exp(sigma * n);
-        }
-
-        delayMs += (rand.nextDouble() - 0.5) * 1.4;
+        // Light symmetric jitter — log-normal with small sigma so E[delay] ≈ mean.
+        double sigma = 0.06;
+        double delayMs = meanDelayMs * Math.exp(sigma * rand.nextGaussian() - 0.5 * sigma * sigma);
 
         return Math.max(1L, Math.round(delayMs));
     }
@@ -330,14 +236,6 @@ public class LeftClicker extends Module {
             breakHeld = true;
         }
         return true;
-    }
-
-    private void tickBlockHitRelease() {
-        if (!blocking) return;
-        if (System.currentTimeMillis() - blockHitTime > 50L + rand.nextInt(50)) {
-            KeyBinding.setKeyBindState(mc.gameSettings.keyBindUseItem.getKeyCode(), false);
-            blocking = false;
-        }
     }
 
     private void applySmoothJitter() {

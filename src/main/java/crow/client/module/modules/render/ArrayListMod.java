@@ -20,7 +20,6 @@ import crow.client.module.setting.impl.RGBSetting;
 import crow.client.module.setting.impl.SliderSetting;
 import crow.client.module.setting.impl.TickSetting;
 import crow.client.utils.GUIBlurUtil;
-import crow.client.utils.GlowUtil;
 import crow.client.utils.RenderUtils;
 import crow.client.utils.Utils;
 import crow.client.utils.font.FontUtil;
@@ -203,12 +202,6 @@ public class ArrayListMod extends Module {
                 railX1 = posX - lw;
                 railX2 = posX;
             }
-            int railGlowColor = 0xFF000000 | (railColorTop & 0x00FFFFFF);
-            if (HUD.enableGlow != null && HUD.enableGlow.isToggled()) {
-                GlowUtil.drawGlow(railX1, railTop, railX2 - railX1, railBottom - railTop,
-                        Math.max(4.0F, (float) HUD.glowRadius.getInput() * 0.45F), 1,
-                        railGlowColor, (float) HUD.glowIntensity.getInput() * 0.65F);
-            }
             Gui.drawRect(railX1, railTop, railX2, railBottom, railColorTop);
         }
 
@@ -244,15 +237,6 @@ public class ArrayListMod extends Module {
             }
         }
 
-        if (dropShadow.isToggled()) {
-            for (int i = 0; i < rowCount; i++) {
-                if (rowProgress[i] <= 0.03F) continue;
-                int shadowAlpha = Math.max(6, Math.min(22, rowAlpha[i] / 14));
-                GlowUtil.drawGlow(rowBgX1[i], rowYArr[i] + 1, rowBgX2[i] - rowBgX1[i], rowH,
-                        4.0F, CORNER_R, (shadowAlpha << 24), 0.16F);
-            }
-        }
-
         int delay = 0;
         for (int i = 0; i < rowCount; i++) {
             if (rowProgress[i] <= 0.03F) { delay -= 50; continue; }
@@ -282,23 +266,8 @@ public class ArrayListMod extends Module {
             }
 
             if (customFont.isToggled()) {
-                if (HUD.enableGlow != null && HUD.enableGlow.isToggled()) {
-                    int glowCol = 0xFF000000 | (getTextColor(delay) & 0x00FFFFFF);
-                    float glowR = Math.max(2.0F, (float) HUD.glowRadius.getInput() * 0.5F);
-                    float glowI = (float) HUD.glowIntensity.getInput();
-                    FontUtil.semiBold.drawGlowString(displayText, textX, rowY + VERT_PAD,
-                            textColor, glowCol, glowR, glowI);
-                } else {
-                    FontUtil.semiBold.drawSmoothString(displayText, textX, rowY + VERT_PAD, textColor);
-                }
+                FontUtil.semiBold.drawSmoothString(displayText, textX, rowY + VERT_PAD, textColor);
             } else {
-                if (HUD.enableGlow != null && HUD.enableGlow.isToggled()) {
-                    int glowCol = 0xFF000000 | (getTextColor(delay) & 0x00FFFFFF);
-                    float glowR = Math.max(2.0F, (float) HUD.glowRadius.getInput() * 0.5F);
-                    float glowI = (float) HUD.glowIntensity.getInput();
-                    RenderUtils.drawVanillaTextGlow(mc.fontRendererObj, displayText,
-                            textX, rowY + VERT_PAD, glowCol, glowR, glowI);
-                }
                 mc.fontRendererObj.drawString(displayText, textX, rowY + VERT_PAD, textColor, dropShadow.isToggled());
             }
 

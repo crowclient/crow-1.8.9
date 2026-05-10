@@ -32,7 +32,6 @@ public class PenisESP extends Module {
     private final TickSetting   targetPlayers;
     private final TickSetting   targetMobs;
     private final TickSetting   skipFriends;
-    private final TickSetting   glowFx;
     private final TickSetting   pulseFx;
     private final TickSetting   spinFx;
 
@@ -58,7 +57,6 @@ public class PenisESP extends Module {
         this.registerSetting(targetPlayers = new TickSetting("Players",      true));
         this.registerSetting(targetMobs  = new TickSetting("Mobs",           false));
         this.registerSetting(skipFriends = new TickSetting("Skip friends",   true));
-        this.registerSetting(glowFx      = new TickSetting("Glow",           true));
         this.registerSetting(pulseFx     = new TickSetting("Pulse",          true));
         this.registerSetting(spinFx      = new TickSetting("Spin",           false));
     }
@@ -116,11 +114,9 @@ public class PenisESP extends Module {
         GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glEnable(GL11.GL_BLEND);
-        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        crow.client.render.aa.AABlend.blendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
         GL11.glDisable(GL11.GL_DEPTH_TEST);
         GL11.glDepthMask(false);
-        GL11.glEnable(GL11.GL_LINE_SMOOTH);
-        GL11.glHint(GL11.GL_LINE_SMOOTH_HINT, GL11.GL_NICEST);
 
         final float lw = (float) thickness.getInput();
 
@@ -153,20 +149,6 @@ public class PenisESP extends Module {
             }
 
             GL11.glScalef(scale, scale, scale);
-
-            if (glowFx.isToggled()) {
-                GL11.glLineWidth(lw * 5.0f);
-                GL11.glColor4f(col[0], col[1], col[2], 0.05f);
-                drawShape();
-
-                GL11.glLineWidth(lw * 3.0f);
-                GL11.glColor4f(col[0], col[1], col[2], 0.12f);
-                drawShape();
-
-                GL11.glLineWidth(lw * 1.7f);
-                GL11.glColor4f(col[0], col[1], col[2], 0.28f);
-                drawShape();
-            }
 
             GL11.glLineWidth(lw);
             GL11.glColor4f(col[0], col[1], col[2], 1.0f);

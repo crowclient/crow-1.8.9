@@ -8,7 +8,6 @@ import crow.client.module.modules.client.Targets;
 import crow.client.module.setting.impl.SliderSetting;
 import crow.client.module.setting.impl.TickSetting;
 import crow.client.utils.GUIBlurUtil;
-import crow.client.utils.GlowUtil;
 import crow.client.utils.RenderUtils;
 import crow.client.utils.Utils;
 import net.minecraft.client.gui.GuiChat;
@@ -70,8 +69,6 @@ public class Radar extends Module {
             mc.entityRenderer.setupOverlayRendering();
         }
 
-        RenderUtils.drawRoundedGlow(x, y, x + panelSize, y + panelSize, corner, 0x50000000, 6);
-
         RenderUtils.drawRoundedRectAA(x, y, x + panelSize, y + panelSize, corner, 0xD814171D);
 
         GL11.glPushMatrix();
@@ -108,13 +105,7 @@ public class Radar extends Module {
                 float strW = (float) FontUtil.bold.getStringWidth(label);
                 float drawX = lx - strW / 2.0F;
                 float drawY = ly - 3.0F;
-                if (HUD.enableGlow != null && HUD.enableGlow.isToggled()) {
-                    FontUtil.bold.drawGlowString(label, drawX, drawY, 0xAAFFFFFF,
-                            0xFFFFFFFF, Math.max(2.0F, (float) HUD.glowRadius.getInput() * 0.3F),
-                            (float) HUD.glowIntensity.getInput() * 0.6F);
-                } else {
-                    FontUtil.bold.drawSmoothString(label, drawX, drawY, 0xAAFFFFFF);
-                }
+                FontUtil.bold.drawSmoothString(label, drawX, drawY, 0xAAFFFFFF);
             } else {
                 float strW = (float) FontUtil.small.getStringWidth(label);
                 FontUtil.small.drawSmoothString(label, lx - strW / 2.0F, ly - 3.0F, 0x66FFFFFF);

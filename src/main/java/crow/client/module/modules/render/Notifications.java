@@ -14,7 +14,6 @@ public class Notifications extends Module {
     public static ComboSetting<Position> position;
     public static SliderSetting duration;
     public static TickSetting blur;
-    public static TickSetting glow;
     public static TickSetting accentBar;
 
     public Notifications() {
@@ -23,7 +22,6 @@ public class Notifications extends Module {
         this.registerSetting(position = new ComboSetting<>("Position", Position.TopCenter));
         this.registerSetting(duration = new SliderSetting("Duration", 1.0D, 0.5D, 5.0D, 0.5D));
         this.registerSetting(blur = new TickSetting("Blur", false));
-        this.registerSetting(glow = new TickSetting("Glow", false));
         this.registerSetting(accentBar = new TickSetting("Accent Bar", true));
         accentBar.visibleWhen(() -> {
             Style s = style != null ? (Style) style.getMode() : Style.Modern;
@@ -45,10 +43,6 @@ public class Notifications extends Module {
 
     public static boolean useBlur() {
         return blur != null && blur.isToggled();
-    }
-
-    public static boolean useGlow() {
-        return glow != null && glow.isToggled();
     }
 
     public static boolean useAccentBar() {

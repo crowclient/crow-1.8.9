@@ -1083,45 +1083,69 @@ public class Utils {
         }
 
         public static void drawRingAroundEntity(Entity e, int color, double radius, double yOffset, float lineWidth) {
-            if (e != null) {
-                double x = (e.lastTickPosX + ((e.posX - e.lastTickPosX) * (double) Client.getTimer().renderPartialTicks))
-                        - mc.getRenderManager().viewerPosX;
-                double y = (e.lastTickPosY + ((e.posY - e.lastTickPosY) * (double) Client.getTimer().renderPartialTicks))
-                        - mc.getRenderManager().viewerPosY + yOffset;
-                double z = (e.lastTickPosZ + ((e.posZ - e.lastTickPosZ) * (double) Client.getTimer().renderPartialTicks))
-                        - mc.getRenderManager().viewerPosZ;
+            if (e == null) return;
 
-                float a = (float) ((color >> 24) & 255) / 255.0F;
-                float r = (float) ((color >> 16) & 255) / 255.0F;
-                float g = (float) ((color >> 8) & 255) / 255.0F;
-                float b = (float) (color & 255) / 255.0F;
+            double x = (e.lastTickPosX + ((e.posX - e.lastTickPosX) * (double) Client.getTimer().renderPartialTicks))
+                    - mc.getRenderManager().viewerPosX;
+            double y = (e.lastTickPosY + ((e.posY - e.lastTickPosY) * (double) Client.getTimer().renderPartialTicks))
+                    - mc.getRenderManager().viewerPosY + yOffset;
+            double z = (e.lastTickPosZ + ((e.posZ - e.lastTickPosZ) * (double) Client.getTimer().renderPartialTicks))
+                    - mc.getRenderManager().viewerPosZ;
 
-                GlStateManager.pushMatrix();
-                GlStateManager.enableBlend();
-                GlStateManager.blendFunc(770, 771);
-                GlStateManager.disableTexture2D();
-                GlStateManager.disableDepth();
-                GlStateManager.depthMask(false);
-                GL11.glEnable(GL11.GL_LINE_SMOOTH);
-                GL11.glHint(GL11.GL_LINE_SMOOTH_HINT, GL11.GL_NICEST);
-                GL11.glLineWidth(lineWidth);
-                GlStateManager.color(r, g, b, a);
+            float a = (float) ((color >> 24) & 255) / 255.0F;
+            float r = (float) ((color >> 16) & 255) / 255.0F;
+            float g = (float) ((color >> 8) & 255) / 255.0F;
+            float bl = (float) (color & 255) / 255.0F;
 
-                GL11.glBegin(GL11.GL_LINE_LOOP);
-                for (int i = 0; i <= 360; i += 1) {
-                    double angle = Math.toRadians(i);
-                    GL11.glVertex3d(x + Math.sin(angle) * radius, y, z + Math.cos(angle) * radius);
-                }
-                GL11.glEnd();
-                GL11.glDisable(GL11.GL_LINE_SMOOTH);
+            // Cylinder rises from the ring up to ~chest height of the entity,
+            // fading from the ring's alpha at the feet to fully transparent
+            // at the top. Single quad strip with vertex-interpolated alpha so
+            // the gradient is one smooth fade — stacking multiple strips
+            // creates overdraw at every shared boundary and reads as bands.
+            double cylTop = Math.max(0.6D, e.height * 0.55D);
+            final int RADIAL_SEGMENTS = 64;
 
-                GlStateManager.enableTexture2D();
-                GlStateManager.enableDepth();
-                GlStateManager.depthMask(true);
-                GlStateManager.disableBlend();
-                GlStateManager.popMatrix();
-                GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+            GlStateManager.pushMatrix();
+            GlStateManager.enableBlend();
+            GlStateManager.blendFunc(770, 771);
+            GlStateManager.disableTexture2D();
+            GlStateManager.disableDepth();
+            GlStateManager.depthMask(false);
+            GlStateManager.disableCull();
+
+            GL11.glBegin(GL11.GL_QUAD_STRIP);
+            for (int i = 0; i <= RADIAL_SEGMENTS; i++) {
+                double angle = (2.0 * Math.PI * i) / RADIAL_SEGMENTS;
+                double cx = Math.sin(angle) * radius;
+                double cz = Math.cos(angle) * radius;
+                GL11.glColor4f(r, g, bl, a);    // feet — full alpha
+                GL11.glVertex3d(x + cx, y, z + cz);
+                GL11.glColor4f(r, g, bl, 0.0F); // chest — fully transparent
+                GL11.glVertex3d(x + cx, y + cylTop, z + cz);
             }
+            GL11.glEnd();
+
+            GlStateManager.enableCull();
+
+            // Bright ring at the base for definition. Edge smoothing now
+            // comes from the AA pipeline / SDF helpers, not GL_LINE_SMOOTH
+            // (which was driver-dependent and pixelated on most setups).
+            GL11.glLineWidth(lineWidth);
+            GlStateManager.color(r, g, bl, a);
+
+            GL11.glBegin(GL11.GL_LINE_LOOP);
+            for (int i = 0; i <= 360; i += 1) {
+                double angle = Math.toRadians(i);
+                GL11.glVertex3d(x + Math.sin(angle) * radius, y, z + Math.cos(angle) * radius);
+            }
+            GL11.glEnd();
+
+            GlStateManager.enableTexture2D();
+            GlStateManager.enableDepth();
+            GlStateManager.depthMask(true);
+            GlStateManager.disableBlend();
+            GlStateManager.popMatrix();
+            GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
         }
 
         public static void drawHealthBar(Entity e, double expand, double shift) {
@@ -1353,7 +1377,6 @@ public class Utils {
                 float b = (float) (color & 255) / 255.0F;
                 GlStateManager.pushMatrix();
                 GlStateManager.enableBlend();
-                GL11.glEnable(GL11.GL_LINE_SMOOTH);
                 GlStateManager.disableDepth();
                 GlStateManager.disableTexture2D();
                 GlStateManager.blendFunc(770, 771);
@@ -1366,7 +1389,6 @@ public class Utils {
                 GlStateManager.disableBlend();
                 GlStateManager.enableTexture2D();
                 GlStateManager.enableDepth();
-                GL11.glDisable(GL11.GL_LINE_SMOOTH);
 
                 GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
                 GlStateManager.popMatrix();
@@ -1508,7 +1530,6 @@ public class Utils {
             GlStateManager.enableBlend();
             GlStateManager.blendFunc(770, 771);
             GlStateManager.disableDepth();
-            GL11.glEnable(GL11.GL_LINE_SMOOTH);
             GlStateManager.depthMask(false);
             GL11.glLineWidth(lineWidth);
             if (!chroma)
@@ -1542,7 +1563,6 @@ public class Utils {
             GL11.glEnd();
             GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
             GlStateManager.depthMask(true);
-            GL11.glDisable(GL11.GL_LINE_SMOOTH);
             GlStateManager.enableDepth();
             GlStateManager.disableBlend();
             GlStateManager.enableTexture2D();

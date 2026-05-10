@@ -5,12 +5,10 @@ import crow.client.event.impl.Render2DEvent;
 import crow.client.main.Crow;
 import crow.client.module.Module;
 import crow.client.module.modules.HUD;
-import crow.client.module.modules.client.GuiModule;
 import crow.client.module.setting.impl.RGBSetting;
 import crow.client.module.setting.impl.SliderSetting;
 import crow.client.module.setting.impl.TickSetting;
 import crow.client.utils.GUIBlurUtil;
-import crow.client.utils.GlowUtil;
 import crow.client.utils.RenderUtils;
 import crow.client.utils.Utils;
 import crow.client.utils.font.FontUtil;
@@ -130,7 +128,6 @@ public class ScoreboardMod extends Module {
                 | (bgColor.getGreen() << 8)
                 | bgColor.getBlue();
         int border = 0xFF000000 | (outlineColor.getRed() << 16) | (outlineColor.getGreen() << 8) | outlineColor.getBlue();
-        int accent = 0xFF000000 | (GuiModule.getThemeColor(0) & 0x00FFFFFF);
 
         if (HUD.enableBlur != null && HUD.enableBlur.isToggled()) {
             GUIBlurUtil.drawBlurredBackground(x, y, scaledWidth, scaledHeight,
@@ -147,7 +144,6 @@ public class ScoreboardMod extends Module {
             RenderUtils.drawRoundedRectAA(x, y, x + board.width, y + board.height, 8, bg);
         }
         if (outline.isToggled()) {
-            RenderUtils.drawHudGlow(x, y, x + board.width, y + board.height, 8.0F, 0x66FFFFFF, 3.5F, 0.9F);
             RenderUtils.drawRoundedOutline(x, y, x + board.width, y + board.height, 8, 1.0F, border);
         }
 
@@ -273,23 +269,9 @@ public class ScoreboardMod extends Module {
 
     private void drawTextSegment(String text, int x, int y, int color) {
         if (text == null || text.isEmpty()) return;
-        boolean useGlow = HUD.enableGlow != null && HUD.enableGlow.isToggled();
         if (customFont.isToggled() && !requiresVanillaFont(text)) {
-            if (useGlow) {
-                int glowCol = 0xFF000000 | (color & 0x00FFFFFF);
-                FontUtil.semiBold.drawGlowString(text, x, y, color, glowCol,
-                        Math.max(2.0F, (float) HUD.glowRadius.getInput() * 0.4F),
-                        (float) HUD.glowIntensity.getInput() * 0.7F);
-            } else {
-                FontUtil.semiBold.drawSmoothString(text, x, y, color);
-            }
+            FontUtil.semiBold.drawSmoothString(text, x, y, color);
         } else {
-            if (useGlow) {
-                int glowCol = 0xFF000000 | (color & 0x00FFFFFF);
-                RenderUtils.drawVanillaTextGlow(mc.fontRendererObj, text, x, y, glowCol,
-                        Math.max(2.0F, (float) HUD.glowRadius.getInput() * 0.4F),
-                        (float) HUD.glowIntensity.getInput() * 0.7F);
-            }
             mc.fontRendererObj.drawString(text, x, y, color, false);
         }
     }

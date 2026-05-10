@@ -26,7 +26,6 @@ import net.minecraft.util.ResourceLocation;
 
 public class RenderUtils {
     private static final Map<String, ResourceLocation> RESOURCE_CACHE = new HashMap<>();
-    private static final int MAX_GLOW_LAYERS = 8;
 
     public static void syncGlStateBlend() {
         if (GL11.glIsEnabled(GL11.GL_BLEND)) {
@@ -215,14 +214,23 @@ public class RenderUtils {
     }
 
     public static void drawRoundedRect(float x, float y, float x1, float y1, final float radius, final int color) {
+        if (crow.client.render.aa.AAPipeline.isActive()) {
+            crow.client.render.aa.SDFRenderer.fillRoundedRect(x, y, x1 - x, y1 - y, radius, color);
+            return;
+        }
         drawAARect(x, y, x1, y1, radius, color, ALL_CORNERS, 9999.0f);
     }
 
     public static void drawRoundedRect(float x, float y, float x1, float y1, final float radius, final int color, boolean[] round) {
+        // SDF doesn't support per-corner rounding yet — use legacy path.
         drawAARect(x, y, x1, y1, radius, color, round, 9999.0f);
     }
 
     public static void drawRoundedOutline(float x, float y, float x1, float y1, final float radius, final float borderSize, final int color) {
+        if (crow.client.render.aa.AAPipeline.isActive()) {
+            crow.client.render.aa.SDFRenderer.outlineRoundedRect(x, y, x1 - x, y1 - y, radius, borderSize, color);
+            return;
+        }
         drawAARect(x, y, x1, y1, radius, color, ALL_CORNERS, borderSize);
     }
 
@@ -241,10 +249,18 @@ public class RenderUtils {
     }
 
     public static void drawCircleOutline(float cx, float cy, float radius, float lineWidth, int color) {
+        if (crow.client.render.aa.AAPipeline.isActive()) {
+            crow.client.render.aa.SDFRenderer.outlineCircle(cx, cy, radius, lineWidth, color);
+            return;
+        }
         drawAARect(cx - radius, cy - radius, cx + radius, cy + radius, radius, color, ALL_CORNERS, lineWidth);
     }
 
     public static void drawFilledCircle(float cx, float cy, float radius, int color) {
+        if (crow.client.render.aa.AAPipeline.isActive()) {
+            crow.client.render.aa.SDFRenderer.fillCircle(cx, cy, radius, color);
+            return;
+        }
         drawAARect(cx - radius, cy - radius, cx + radius, cy + radius, radius, color, ALL_CORNERS, 9999.0f);
     }
 
@@ -305,30 +321,64 @@ public class RenderUtils {
     public static void drawFlowingGradientRoundedRect(int left, int top, int right, int bottom, float radius, int alpha, int delayBase) {
         if (right <= left || bottom <= top || alpha <= 0) return;
 
-        if (RecordingMode.shouldSkipStencil()) {
-            drawFlowingGradientRect(left, top, right, bottom, alpha, delayBase);
-            return;
+        int width = right - left;
+        int height = bottom - top;
+        float r = Math.max(0.0F, Math.min(radius, Math.min(width / 2.0F, height / 2.0F)));
+        int spatialSpread = 200;
+
+        GlStateManager.enableBlend();
+        GlStateManager.disableTexture2D();
+        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+        GlStateManager.shadeModel(7425);
+
+        net.minecraft.client.renderer.Tessellator tessellator = net.minecraft.client.renderer.Tessellator.getInstance();
+        net.minecraft.client.renderer.WorldRenderer worldrenderer = tessellator.getWorldRenderer();
+        worldrenderer.begin(7, net.minecraft.client.renderer.vertex.DefaultVertexFormats.POSITION_COLOR);
+
+        for (int x = left; x < right; x++) {
+            int nextX = x + 1;
+            float insetL = roundCornerInset(x     - left, width,  r);
+            float insetR = roundCornerInset(nextX - left, width,  r);
+            float colTop = top    + insetL;
+            float colBot = bottom - insetL;
+            float nxtTop = top    + insetR;
+            float nxtBot = bottom - insetR;
+            if (colTop >= colBot || nxtTop >= nxtBot) continue;
+
+            int spatialDelayLeft  = (x     - left) * spatialSpread / Math.max(1, width);
+            int spatialDelayRight = (nextX - left) * spatialSpread / Math.max(1, width);
+            int colorLeft  = crow.client.module.modules.client.GuiModule.getThemeColor(delayBase - spatialDelayLeft);
+            int colorRight = crow.client.module.modules.client.GuiModule.getThemeColor(delayBase - spatialDelayRight);
+            int a = alpha & 0xFF;
+            int cLr = (colorLeft >> 16) & 0xFF, cLg = (colorLeft >> 8) & 0xFF, cLb = colorLeft & 0xFF;
+            int cRr = (colorRight >> 16) & 0xFF, cRg = (colorRight >> 8) & 0xFF, cRb = colorRight & 0xFF;
+
+            worldrenderer.pos(nextX, nxtTop, 0.0D).color(cRr, cRg, cRb, a).endVertex();
+            worldrenderer.pos(x,     colTop, 0.0D).color(cLr, cLg, cLb, a).endVertex();
+            worldrenderer.pos(x,     colBot, 0.0D).color(cLr, cLg, cLb, a).endVertex();
+            worldrenderer.pos(nextX, nxtBot, 0.0D).color(cRr, cRg, cRb, a).endVertex();
         }
 
-        GL11.glEnable(GL11.GL_STENCIL_TEST);
-        GL11.glClearStencil(0);
-        GL11.glClear(GL11.GL_STENCIL_BUFFER_BIT);
+        tessellator.draw();
 
-        GL11.glStencilFunc(GL11.GL_ALWAYS, 1, 0xFF);
-        GL11.glStencilOp(GL11.GL_KEEP, GL11.GL_KEEP, GL11.GL_REPLACE);
-        GL11.glStencilMask(0xFF);
-        GL11.glColorMask(false, false, false, false);
-        GL11.glDepthMask(false);
-        drawRoundedRect(left, top, right, bottom, radius, 0xFFFFFFFF);
-        GL11.glColorMask(true, true, true, true);
-        GL11.glDepthMask(true);
+        GlStateManager.shadeModel(7425);
+        GlStateManager.enableTexture2D();
+        GlStateManager.disableBlend();
+        GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+    }
 
-        GL11.glStencilFunc(GL11.GL_EQUAL, 1, 0xFF);
-        GL11.glStencilMask(0x00);
-        drawFlowingGradientRect(left, top, right, bottom, alpha, delayBase);
-
-        GL11.glDisable(GL11.GL_STENCIL_TEST);
-        GL11.glStencilMask(0xFF);
+    private static float roundCornerInset(float pos, float length, float radius) {
+        if (radius <= 0.0F) return 0.0F;
+        if (pos < radius) {
+            float dy = radius - pos;
+            return radius - (float) Math.sqrt(Math.max(0.0F, radius * radius - dy * dy));
+        }
+        if (pos > length - radius) {
+            float dy = pos - (length - radius);
+            return radius - (float) Math.sqrt(Math.max(0.0F, radius * radius - dy * dy));
+        }
+        return 0.0F;
     }
 
     public static void drawFlowingGradientRectVertical(int left, int top, int right, int bottom, int alpha, int delayBase) {
@@ -382,30 +432,51 @@ public class RenderUtils {
     public static void drawFlowingGradientRoundedRectVertical(int left, int top, int right, int bottom, float radius, int alpha, int delayBase) {
         if (right <= left || bottom <= top || alpha <= 0) return;
 
-        if (RecordingMode.shouldSkipStencil()) {
-            drawFlowingGradientRectVertical(left, top, right, bottom, alpha, delayBase);
-            return;
+        int width = right - left;
+        int height = bottom - top;
+        float r = Math.max(0.0F, Math.min(radius, Math.min(width / 2.0F, height / 2.0F)));
+        int spatialSpread = 200;
+
+        GlStateManager.enableBlend();
+        GlStateManager.disableTexture2D();
+        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+        GlStateManager.shadeModel(7425);
+
+        net.minecraft.client.renderer.Tessellator tessellator = net.minecraft.client.renderer.Tessellator.getInstance();
+        net.minecraft.client.renderer.WorldRenderer worldrenderer = tessellator.getWorldRenderer();
+        worldrenderer.begin(7, net.minecraft.client.renderer.vertex.DefaultVertexFormats.POSITION_COLOR);
+
+        for (int y = top; y < bottom; y++) {
+            int nextY = y + 1;
+            float insetT = roundCornerInset(y     - top, height, r);
+            float insetB = roundCornerInset(nextY - top, height, r);
+            float lT = left  + insetT;
+            float rT = right - insetT;
+            float lB = left  + insetB;
+            float rB = right - insetB;
+            if (lT >= rT || lB >= rB) continue;
+
+            int spatialDelayTop    = (y     - top) * spatialSpread / Math.max(1, height);
+            int spatialDelayBottom = (nextY - top) * spatialSpread / Math.max(1, height);
+            int colorTop    = crow.client.module.modules.client.GuiModule.getThemeColor(delayBase - spatialDelayTop);
+            int colorBottom = crow.client.module.modules.client.GuiModule.getThemeColor(delayBase - spatialDelayBottom);
+            int a = alpha & 0xFF;
+            int cTr = (colorTop    >> 16) & 0xFF, cTg = (colorTop    >> 8) & 0xFF, cTb = colorTop    & 0xFF;
+            int cBr = (colorBottom >> 16) & 0xFF, cBg = (colorBottom >> 8) & 0xFF, cBb = colorBottom & 0xFF;
+
+            worldrenderer.pos(rT, y,     0.0D).color(cTr, cTg, cTb, a).endVertex();
+            worldrenderer.pos(lT, y,     0.0D).color(cTr, cTg, cTb, a).endVertex();
+            worldrenderer.pos(lB, nextY, 0.0D).color(cBr, cBg, cBb, a).endVertex();
+            worldrenderer.pos(rB, nextY, 0.0D).color(cBr, cBg, cBb, a).endVertex();
         }
 
-        GL11.glEnable(GL11.GL_STENCIL_TEST);
-        GL11.glClearStencil(0);
-        GL11.glClear(GL11.GL_STENCIL_BUFFER_BIT);
+        tessellator.draw();
 
-        GL11.glStencilFunc(GL11.GL_ALWAYS, 1, 0xFF);
-        GL11.glStencilOp(GL11.GL_KEEP, GL11.GL_KEEP, GL11.GL_REPLACE);
-        GL11.glStencilMask(0xFF);
-        GL11.glColorMask(false, false, false, false);
-        GL11.glDepthMask(false);
-        drawRoundedRect(left, top, right, bottom, radius, 0xFFFFFFFF);
-        GL11.glColorMask(true, true, true, true);
-        GL11.glDepthMask(true);
-
-        GL11.glStencilFunc(GL11.GL_EQUAL, 1, 0xFF);
-        GL11.glStencilMask(0x00);
-        drawFlowingGradientRectVertical(left, top, right, bottom, alpha, delayBase);
-
-        GL11.glDisable(GL11.GL_STENCIL_TEST);
-        GL11.glStencilMask(0xFF);
+        GlStateManager.shadeModel(7425);
+        GlStateManager.enableTexture2D();
+        GlStateManager.disableBlend();
+        GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
     }
 
     public static void drawSoftBlurRect(float x, float y, float x1, float y1, float radius, int baseColor) {
@@ -417,108 +488,6 @@ public class RenderUtils {
         drawRoundedRect(x - 1, y - 1, x1 + 1, y1 + 1, radius + 1, ((int) (alpha * 0.28F) << 24) | rgb);
         drawRoundedRect(x - 3, y - 2, x1 + 3, y1 + 2, radius + 2, ((int) (alpha * 0.18F) << 24) | rgb);
         drawRoundedRect(x - 5, y - 4, x1 + 5, y1 + 4, radius + 4, ((int) (alpha * 0.10F) << 24) | rgb);
-    }
-
-    public static void drawRoundedGlow(float x, float y, float x1, float y1, float radius, int color, int strength) {
-        int alpha = (color >> 24) & 0xFF;
-        int rgb = color & 0x00FFFFFF;
-        if (alpha <= 0 || strength <= 0) return;
-
-        for (int i = strength; i >= 1; i--) {
-            float spread = i * 1.35F;
-            float glowRadius = radius + i;
-            float alphaScale = 0.05F + (i / (float) strength) * 0.08F;
-            int glowAlpha = Math.max(1, Math.min(255, (int) (alpha * alphaScale)));
-            drawRoundedRect(x - spread, y - spread, x1 + spread, y1 + spread, glowRadius, (glowAlpha << 24) | rgb);
-        }
-    }
-
-    public static void drawFlowingGlowRect(int left, int top, int right, int bottom, int alpha, int delayBase, int strength) {
-        if (right <= left || bottom <= top || alpha <= 0 || strength <= 0) return;
-        for (int i = strength; i >= 1; i--) {
-            int layerAlpha = Math.max(1, (int) (alpha * (0.05F + (i / (float) strength) * 0.08F)));
-            drawFlowingGradientRect(left - i, top - i, right + i, bottom + i, layerAlpha, delayBase - i * 30);
-        }
-    }
-
-    public static void drawHudGlow(float x, float y, float x1, float y1, float radius, int color, float size, float intensity) {
-        int alpha = (color >> 24) & 0xFF;
-        int rgb = color & 0x00FFFFFF;
-        if (alpha <= 0 || size <= 0.0F || intensity <= 0.0F) return;
-
-        int layers = Math.max(2, Math.min(MAX_GLOW_LAYERS, (int) Math.ceil(size)));
-        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
-        GL11.glEnable(GL11.GL_BLEND);
-        GL11.glDisable(GL11.GL_TEXTURE_2D);
-        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE);
-        GL11.glDisable(GL11.GL_ALPHA_TEST);
-        GL11.glDisable(GL11.GL_CULL_FACE);
-
-        for (int i = layers; i >= 1; i--) {
-            float progress = i / (float) layers;
-            float spread = progress * size * 2.1F;
-            float alphaScale = 0.04F + progress * 0.12F * intensity;
-            int layerAlpha = Math.max(1, Math.min(255, (int) (alpha * alphaScale)));
-            drawRoundedRect(x - spread, y - spread, x1 + spread, y1 + spread, radius + spread * 0.8F, (layerAlpha << 24) | rgb);
-        }
-
-        GL11.glPopAttrib();
-        syncAllGlState();
-    }
-
-    public static void drawFlowingHudGlow(int left, int top, int right, int bottom, int alpha, int delayBase, float size, float intensity) {
-        if (right <= left || bottom <= top || alpha <= 0 || size <= 0.0F || intensity <= 0.0F) return;
-
-        int layers = Math.max(2, Math.min(MAX_GLOW_LAYERS, (int) Math.ceil(size)));
-        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
-        GL11.glEnable(GL11.GL_BLEND);
-        GL11.glDisable(GL11.GL_TEXTURE_2D);
-        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE);
-        GL11.glDisable(GL11.GL_ALPHA_TEST);
-        GL11.glDisable(GL11.GL_CULL_FACE);
-
-        for (int i = layers; i >= 1; i--) {
-            float progress = i / (float) layers;
-            int layerAlpha = Math.max(1, Math.min(255, (int) (alpha * (0.05F + progress * 0.11F * intensity))));
-            int inset = (int) Math.ceil(progress * size * 1.8F);
-            drawFlowingGradientRect(left - inset, top - inset, right + inset, bottom + inset, layerAlpha, delayBase - i * 22);
-        }
-
-        GL11.glPopAttrib();
-        syncAllGlState();
-    }
-
-    public static void drawTextGlow(float x, float y, float x1, float y1, int color, float size, float intensity) {
-        drawHudGlow(x, y, x1, y1, Math.max(2.0F, size), color, size, intensity);
-    }
-
-    public static void drawVanillaTextGlow(net.minecraft.client.gui.FontRenderer fr, String text,
-                                            float x, float y, int glowColor, float radius, float intensity) {
-        if (text == null || text.isEmpty() || radius <= 0 || intensity <= 0) return;
-        int glowRGB = glowColor & 0x00FFFFFF;
-        float ci = Math.max(0.0F, Math.min(1.5F, intensity));
-
-        GlStateManager.enableBlend();
-        GlStateManager.tryBlendFuncSeparate(770, 1, 770, 1);
-
-        float[][] rings = {
-            { radius * 0.33F, 0.45F * ci },
-            { radius * 0.66F, 0.25F * ci },
-            { radius,         0.12F * ci },
-        };
-        for (float[] ring : rings) {
-            float dist = Math.max(0.3F, ring[0]);
-            int a = Math.max(3, Math.min(255, (int) (ring[1] * 255)));
-            int col = (a << 24) | glowRGB;
-            for (int d = 0; d < 8; d++) {
-                double angle = Math.PI * 2.0 * d / 8.0;
-                float ox = (float) Math.cos(angle) * dist;
-                float oy = (float) Math.sin(angle) * dist;
-                fr.drawString(text, x + ox, y + oy, col, false);
-            }
-        }
-
-        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
     }
 
     public static float nativeScale() {
@@ -544,7 +513,7 @@ public class RenderUtils {
                     .getDynamicTextureLocation(textureKey, new DynamicTexture(bufferedImage));
             RESOURCE_CACHE.put(s, location);
             return location;
-        } catch (IOException | IllegalArgumentException ignored) {
+        } catch (Throwable ignored) {
             return null;
         }
     }

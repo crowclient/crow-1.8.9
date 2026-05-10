@@ -1,12 +1,12 @@
 package crow.client.module.modules.combat;
 
 import com.google.common.eventbus.Subscribe;
-import crow.client.event.impl.LookEvent;
 import crow.client.event.impl.MoveInputEvent;
 import crow.client.event.impl.UpdateEvent;
 import crow.client.module.Module;
 import crow.client.module.setting.impl.SliderSetting;
 import crow.client.module.setting.impl.TickSetting;
+import crow.client.utils.SilentAim;
 import crow.client.utils.Utils;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockLiquid;
@@ -15,6 +15,7 @@ import net.minecraft.item.ItemBlock;
 import net.minecraft.item.ItemStack;
 import net.minecraft.potion.Potion;
 import net.minecraft.potion.PotionEffect;
+import net.minecraft.util.AxisAlignedBB;
 import net.minecraft.util.BlockPos;
 import net.minecraft.util.EnumFacing;
 import net.minecraft.util.MathHelper;
@@ -36,20 +37,16 @@ public class Clutch extends Module {
     private final TickSetting swing;
     private final TickSetting freezeMove;
 
-    private enum State { IDLE, ROTATING, PLACING, COOLDOWN }
+    private enum State { IDLE, ROTATING, PLACING }
     private State state = State.IDLE;
 
     private PlaceTarget currentTarget;
     private int placedCount;
     private int previousSlot = -1;
     private long lastPlaceMs;
-    private long cooldownUntilMs;
     private int rotationTicks;
 
     private int slotSyncTicks;
-
-    private float serverYaw, serverPitch;
-    private float prevServerYaw, prevServerPitch;
 
     private static final double GRAVITY = 0.08D;
     private static final double DRAG_Y  = 0.98D;
@@ -58,34 +55,35 @@ public class Clutch extends Module {
 
     private static final int PROJECTION_TICKS = 80;
     private static final int VOID_Y = 0;
-    private static final long DECLINE_COOLDOWN_MS = 150L;
-    private static final long POST_CHAIN_COOLDOWN_MS = 200L;
 
     public Clutch() {
         super("Clutch", ModuleCategory.combat);
         this.registerSetting(maxBlocks            = new SliderSetting("Max Blocks", 5.0D, 1.0D, 10.0D, 1.0D));
-        this.registerSetting(damageThreshold      = new SliderSetting("Damage Threshold", 3.0D, 1.0D, 6.0D, 0.5D));
-        this.registerSetting(rotationSpeed        = new SliderSetting("Rotation Speed", 30.0D, 4.0D, 50.0D, 0.5D));
+        this.registerSetting(damageThreshold      = new SliderSetting("Damage Threshold", 1.5D, 0.5D, 6.0D, 0.5D));
+        this.registerSetting(rotationSpeed        = new SliderSetting("Rotation Speed", 36.0D, 4.0D, 50.0D, 0.5D));
         this.registerSetting(placeDelay           = new SliderSetting("Place Delay (ticks)", 0.0D, 0.0D, 4.0D, 1.0D));
         this.registerSetting(searchRadius         = new SliderSetting("Search Radius", 4.5D, 2.0D, 5.0D, 0.5D));
         this.registerSetting(saveFromVoid         = new TickSetting("Save From Void", true));
-        this.registerSetting(cancelIfUnpreventable= new TickSetting("Cancel If Unpreventable", true));
+        this.registerSetting(cancelIfUnpreventable= new TickSetting("Cancel If Unpreventable", false));
         this.registerSetting(autoSwap             = new TickSetting("Auto Swap", true));
 
         this.registerSetting(swapBack             = new TickSetting("Swap Back", false));
-        this.registerSetting(swing                = new TickSetting("Swing Arm", true));
+        this.registerSetting(swing                = new TickSetting("Swing Arm", false));
         this.registerSetting(freezeMove           = new TickSetting("Freeze Movement", true));
+    }
+
+    @Override
+    public String getHudSuffix() {
+        switch (state) {
+            case ROTATING: return "rot";
+            case PLACING:  return "place(" + placedCount + ")";
+            default:       return "";
+        }
     }
 
     @Override
     public void onEnable() {
         resetRuntime(true);
-        if (Utils.Player.isPlayerInGame()) {
-            serverYaw = mc.thePlayer.rotationYaw;
-            serverPitch = mc.thePlayer.rotationPitch;
-            prevServerYaw = serverYaw;
-            prevServerPitch = serverPitch;
-        }
     }
 
     @Override
@@ -112,69 +110,70 @@ public class Clutch extends Module {
     }
 
     @Subscribe
-    public void onLook(LookEvent e) {
-
-        if (state == State.IDLE || state == State.COOLDOWN) return;
-        if (mc.gameSettings.thirdPersonView == 0) return;
-        e.setYaw(serverYaw);
-        e.setPitch(serverPitch);
-        e.setPrevYaw(prevServerYaw);
-        e.setPrevPitch(prevServerPitch);
-    }
-
-    @Subscribe
     public void onMoveInput(MoveInputEvent e) {
-
         if (!freezeMove.isToggled()) return;
-        if (state == State.IDLE || state == State.COOLDOWN) return;
+        if (state == State.IDLE) return;
         e.setStrafe(0F);
         e.setForward(0F);
     }
 
     private void tickPre(UpdateEvent e) {
-        long now = System.currentTimeMillis();
-
-        switch (state) {
-            case IDLE:
-                if (now < cooldownUntilMs) break;
-                tryArm();
-                break;
-            case ROTATING:
-
-                if (currentTarget == null || !isValidPlacement(currentTarget)) {
-                    if (!findAndArmTarget()) { decline(); break; }
-                } else {
-                    float[] freshRot = computePlacementAngles(currentTarget.hitVec);
-                    currentTarget.rotationYaw = freshRot[0];
-                    currentTarget.rotationPitch = freshRot[1];
-                }
-                tickRotation();
-                if (slotSyncTicks > 0) slotSyncTicks--;
-                if (rotReady() && slotSyncTicks <= 0) {
-
-                    serverYaw = currentTarget.rotationYaw;
-                    serverPitch = currentTarget.rotationPitch;
-                    state = State.PLACING;
-                }
-                break;
-            case PLACING:
-
-                break;
-            case COOLDOWN:
-                if (now >= cooldownUntilMs) {
-                    state = State.IDLE;
-                }
-                break;
+        // Single source of truth: are we in a fall situation that warrants clutch?
+        // Avoids the old decline/cooldown loop which caused state to flicker between
+        // ROTATING and IDLE during a fall, snapping the silent rotation each cycle.
+        if (!isInDanger()) {
+            if (state != State.IDLE) {
+                wrapUp();
+            }
+            return;
         }
 
-        if (state == State.ROTATING || state == State.PLACING) {
-            e.setYaw(serverYaw);
-            e.setPitch(serverPitch);
+        // Acquire / refresh target.
+        if (currentTarget == null || !isValidPlacement(currentTarget)) {
+            currentTarget = null;
+            if (!findAndArmTarget()) {
+                // No reachable target this tick. Don't aim, don't reset state —
+                // try again next tick as the player falls closer.
+                return;
+            }
+            state = State.ROTATING;
+        } else {
+            // Player has moved; update angles toward the same hit vec.
+            float[] freshRot = computePlacementAngles(currentTarget.hitVec);
+            currentTarget.rotationYaw = freshRot[0];
+            currentTarget.rotationPitch = freshRot[1];
         }
+
+        rotationTicks++;
+        if (slotSyncTicks > 0) slotSyncTicks--;
+
+        if (state == State.ROTATING && rotReady() && slotSyncTicks <= 0) {
+            state = State.PLACING;
+        }
+
+        float speed = (float) rotationSpeed.getInput();
+        float t = MathHelper.clamp_float((speed - 4f) / (50f - 4f), 0f, 1f);
+        float stiff = 0.30f + t * (0.95f - 0.30f);
+
+        SilentAim.Request req = new SilentAim.Request();
+        req.yaw = currentTarget.rotationYaw;
+        req.pitch = currentTarget.rotationPitch;
+        req.profile = SilentAim.Profile.COMBAT;
+        req.priority = 80;
+        req.maxYawStepDeg = speed;
+        req.maxPitchStepDeg = speed * 0.85f;
+        req.stiffness = stiff;
+        req.fixMovement = false;
+        req.disableTremor = true;
+        req.disableReaction = true;
+        req.claimant = this;
+        SilentAim.aim(req);
+        SilentAim.applyToUpdate(e);
     }
 
     private void tickPost() {
         if (state != State.PLACING || currentTarget == null) return;
+        if (System.currentTimeMillis() - lastPlaceMs < placeDelayMs()) return;
 
         if (!isValidPlacement(currentTarget)) {
             currentTarget = null;
@@ -184,64 +183,61 @@ public class Clutch extends Module {
 
         ItemStack held = mc.thePlayer.getHeldItem();
         if (held == null || !(held.getItem() instanceof ItemBlock)) {
-            decline();
+            currentTarget = null;
+            state = State.ROTATING;
             return;
         }
-
-        if (System.currentTimeMillis() - lastPlaceMs < placeDelayMs()) return;
 
         if (doPlace(currentTarget)) {
             placedCount++;
             lastPlaceMs = System.currentTimeMillis();
             currentTarget = null;
-
-            FallVerdict v = assess();
-            if (v.danger == Danger.SAFE || placedCount >= (int) maxBlocks.getInput()) {
-                finishChain();
+            if (placedCount >= (int) maxBlocks.getInput()) {
+                wrapUp();
                 return;
             }
-            if (!findAndArmTarget()) { finishChain(); return; }
+            // Stay in chain: next tick will re-arm if still in danger.
             state = State.ROTATING;
         } else {
-            decline();
+            // Place failed (server rejected, client raycast missed, etc).
+            currentTarget = null;
+            state = State.ROTATING;
         }
     }
 
-    private void tryArm() {
-        if (mc.thePlayer.onGround) return;
-        if (mc.thePlayer.motionY > -0.18D) return;
-        if (mc.thePlayer.isInWater() || mc.thePlayer.isInLava()) return;
-        if (findBestBlockSlot() == -1) return;
+    /**
+     * Returns true if the player is in a fall that warrants clutching.
+     * Filters out small jumps via fallDistance + assess() projection.
+     *
+     * Note: we deliberately do NOT short-circuit on {@code !v.preventable}.
+     * Early in a tall fall, the floor (and thus any reachable placement) is
+     * outside the 4.5-block reach. A "no target right now" should not turn
+     * into "give up forever" — Clutch will retry every tick and arm as the
+     * player falls within range.
+     */
+    private boolean isInDanger() {
+        if (mc.thePlayer.onGround) return false;
+        if (mc.thePlayer.isInWater() || mc.thePlayer.isInLava()) return false;
+        if (findBestBlockSlot() == -1) return false;
+
+        if (mc.thePlayer.motionY > -0.05D && mc.thePlayer.fallDistance < 0.4F) return false;
 
         FallVerdict v = assess();
-        switch (v.danger) {
-            case SAFE:
-                return;
-            case DAMAGE:
-                if (cancelIfUnpreventable.isToggled() && !v.preventable) {
-                    decline();
-                    return;
-                }
-                break;
-            case VOID:
-                if (!saveFromVoid.isToggled() && !v.preventable) {
-                    decline();
-                    return;
-                }
-                break;
-        }
+        if (v.danger == Danger.SAFE) return false;
+        if (v.danger == Danger.VOID && !saveFromVoid.isToggled()) return false;
+        return true;
+    }
 
-        if (!findAndArmTarget()) {
-            decline();
-            return;
+    private void wrapUp() {
+        if (swapBack.isToggled() && previousSlot != -1 && mc.thePlayer != null) {
+            mc.thePlayer.inventory.currentItem = previousSlot;
         }
-
-        serverYaw = mc.thePlayer.rotationYaw;
-        serverPitch = mc.thePlayer.rotationPitch;
-        prevServerYaw = serverYaw;
-        prevServerPitch = serverPitch;
-        state = State.ROTATING;
+        previousSlot = -1;
+        currentTarget = null;
+        placedCount = 0;
         rotationTicks = 0;
+        slotSyncTicks = 0;
+        state = State.IDLE;
     }
 
     private boolean swapToBlockSlot() {
@@ -406,6 +402,7 @@ public class Clutch extends Module {
                 for (int dz = -rad; dz <= rad; dz++) {
                     BlockPos place = feet.add(dx, dy, dz);
                     if (!isReplaceable(place)) continue;
+                    if (placeWouldCollideWithPlayer(place)) continue;
 
                     for (EnumFacing face : EnumFacing.values()) {
                         BlockPos support = place.offset(face);
@@ -451,10 +448,22 @@ public class Clutch extends Module {
         return isReplaceable(neighbor);
     }
 
+    /**
+     * The server rejects block placements that would intersect the player's
+     * bounding box. Skipping these client-side keeps the chain from stalling
+     * on a placement that the server will silently fail.
+     */
+    private boolean placeWouldCollideWithPlayer(BlockPos pos) {
+        AxisAlignedBB blockBB = new AxisAlignedBB(
+                pos.getX(), pos.getY(), pos.getZ(),
+                pos.getX() + 1.0D, pos.getY() + 1.0D, pos.getZ() + 1.0D);
+        return mc.thePlayer.getEntityBoundingBox().intersectsWith(blockBB);
+    }
+
     private double angularDeltaToFaceDeg(Vec3 hit) {
         float[] rot = computePlacementAngles(hit);
-        float yawDiff = Math.abs(MathHelper.wrapAngleTo180_float(rot[0] - serverYaw));
-        float pitchDiff = Math.abs(rot[1] - serverPitch);
+        float yawDiff = Math.abs(MathHelper.wrapAngleTo180_float(rot[0] - SilentAim.getServerYaw()));
+        float pitchDiff = Math.abs(rot[1] - SilentAim.getServerPitch());
         return yawDiff + pitchDiff;
     }
 
@@ -475,65 +484,20 @@ public class Clutch extends Module {
         double horizontal = Math.sqrt(dx * dx + dz * dz);
         float yaw = (float) Math.toDegrees(Math.atan2(dz, dx)) - 90.0F;
         float pitch = (float) -Math.toDegrees(Math.atan2(dy, horizontal));
-
-        long seed = Double.doubleToLongBits(Math.floor(target.xCoord * 32.0))
-                  ^ Double.doubleToLongBits(Math.floor(target.yCoord * 32.0)) * 0x9E3779B97F4A7C15L
-                  ^ Double.doubleToLongBits(Math.floor(target.zCoord * 32.0)) * 0xBF58476D1CE4E5B9L;
-        float yawJitter   = ((seed         & 0xFFFF) / 65535.0F - 0.5F) * 0.90F;
-        float pitchJitter = (((seed >>> 16) & 0xFFFF) / 65535.0F - 0.5F) * 0.60F;
-        yaw   += yawJitter;
-        pitch += pitchJitter;
-
         return new float[]{yaw, MathHelper.clamp_float(pitch, -89.5F, 89.5F)};
-    }
-
-    private void tickRotation() {
-        prevServerYaw = serverYaw;
-        prevServerPitch = serverPitch;
-        rotationTicks++;
-        state = State.ROTATING;
-
-        ThreadLocalRandom random = ThreadLocalRandom.current();
-        float baseSpeed = Math.max(2.0F, (float) rotationSpeed.getInput());
-        float maxTurn = baseSpeed * (0.88F + random.nextFloat() * 0.18F);
-
-        float yawDelta = MathHelper.wrapAngleTo180_float(currentTarget.rotationYaw - serverYaw);
-        float pitchDelta = currentTarget.rotationPitch - serverPitch;
-
-        float yawProportion = 0.70F + random.nextFloat() * 0.10F;
-        float pitchProportion = 0.62F + random.nextFloat() * 0.10F;
-
-        float yawStep = MathHelper.clamp_float(yawDelta * yawProportion, -maxTurn, maxTurn);
-        float pitchStep = MathHelper.clamp_float(pitchDelta * pitchProportion, -maxTurn * 0.85F, maxTurn * 0.85F);
-
-        float jitter = baseSpeed * 0.010F;
-        yawStep   += (random.nextFloat() - 0.5F) * jitter;
-        pitchStep += (random.nextFloat() - 0.5F) * jitter * 0.6F;
-
-        yawStep   = patchRotationStep(yawStep, yawDelta);
-        pitchStep = patchRotationStep(pitchStep, pitchDelta);
-
-        serverYaw += yawStep;
-        serverPitch = MathHelper.clamp_float(serverPitch + pitchStep, -89.5F, 89.5F);
-    }
-
-    private float patchRotationStep(float step, float targetDelta) {
-        if (Math.abs(targetDelta) <= 0.001F) return 0.0F;
-        float patched = Utils.Player.patchGCD(step);
-        if (patched == 0.0F) {
-            float gcd = Utils.Player.getGcd();
-            patched = (float) Math.copySign(Math.min(Math.abs(targetDelta), gcd), targetDelta);
-        }
-        if (Math.abs(patched) > Math.abs(targetDelta)) patched = targetDelta;
-        return patched;
     }
 
     private boolean rotReady() {
         if (currentTarget == null) return false;
-        float yawDiff = Math.abs(MathHelper.wrapAngleTo180_float(currentTarget.rotationYaw - serverYaw));
-        float pitchDiff = Math.abs(currentTarget.rotationPitch - serverPitch);
+        float yawDiff = Math.abs(MathHelper.wrapAngleTo180_float(
+                currentTarget.rotationYaw - SilentAim.getServerYaw()));
+        float pitchDiff = Math.abs(currentTarget.rotationPitch - SilentAim.getServerPitch());
 
-        return yawDiff <= 4.0F && pitchDiff <= 4.0F;
+        // The placement angles drift ~1–2°/tick as the player falls (eye
+        // position moves while the hit vec is fixed). A 1.5° threshold is too
+        // tight — the spring oscillates inside it without settling.
+        // 3° still raycasts inside a face at typical clutch distances.
+        return yawDiff <= 3.0F && pitchDiff <= 3.0F;
     }
 
     private boolean doPlace(PlaceTarget t) {
@@ -585,23 +549,6 @@ public class Clutch extends Module {
         return true;
     }
 
-    private void decline() {
-        currentTarget = null;
-        cooldownUntilMs = System.currentTimeMillis() + DECLINE_COOLDOWN_MS;
-        state = State.COOLDOWN;
-    }
-
-    private void finishChain() {
-        currentTarget = null;
-        if (swapBack.isToggled() && previousSlot != -1 && mc.thePlayer != null) {
-            mc.thePlayer.inventory.currentItem = previousSlot;
-        }
-        previousSlot = -1;
-        placedCount = 0;
-        cooldownUntilMs = System.currentTimeMillis() + POST_CHAIN_COOLDOWN_MS;
-        state = State.COOLDOWN;
-    }
-
     private void resetRuntime(boolean restoreSlot) {
         if (restoreSlot && previousSlot != -1 && mc.thePlayer != null) {
             mc.thePlayer.inventory.currentItem = previousSlot;
@@ -612,7 +559,6 @@ public class Clutch extends Module {
         rotationTicks = 0;
         slotSyncTicks = 0;
         lastPlaceMs = 0L;
-        cooldownUntilMs = 0L;
         state = State.IDLE;
     }
 

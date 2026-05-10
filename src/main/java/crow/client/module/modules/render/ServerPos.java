@@ -76,7 +76,7 @@ public class ServerPos extends Module {
             );
 
             GlStateManager.pushMatrix();
-            GL11.glBlendFunc(770, 771);
+            crow.client.render.aa.AABlend.blendFunc(770, 771);
             GL11.glEnable(3042);
             GL11.glDisable(3553);
             GL11.glDisable(2929);

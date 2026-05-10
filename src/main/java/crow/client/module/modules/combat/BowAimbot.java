@@ -34,7 +34,6 @@ public class BowAimbot extends Module {
     private final TickSetting   requireCharge;
     private final TickSetting   gravityComp;
     private final TickSetting   wallCheck;
-    private final TickSetting   glowSetting;
     private final TickSetting   aimPitch;
 
     private float   lerpYaw;
@@ -57,7 +56,6 @@ public class BowAimbot extends Module {
         this.registerSetting(requireCharge = new TickSetting("Require charge",  true));
         this.registerSetting(gravityComp   = new TickSetting("Gravity comp",    true));
         this.registerSetting(wallCheck     = new TickSetting("Wall check",      true));
-        this.registerSetting(glowSetting   = new TickSetting("Target glow",     true));
         this.registerSetting(aimPitch      = new TickSetting("Aim pitch",       true));
     }
 
@@ -77,13 +75,6 @@ public class BowAimbot extends Module {
     public void onForgeEvent(ForgeEvent fe) {
 
         if (fe.getEvent() instanceof RenderWorldLastEvent) {
-            EntityLivingBase tgt = currentTarget;
-            if (tgt != null && glowSetting.isToggled() && tgt.isEntityAlive()) {
-                float pulse = (float)(Math.sin(System.currentTimeMillis() / 380.0) * 0.5 + 0.5);
-                int alpha = (int)(55 + pulse * 95);
-                int color = (alpha << 24) | 0xFFAA22;
-                Utils.HUD.drawBoxAroundEntity(tgt, 2, 0.0, 0, color, false);
-            }
             return;
         }
 
@@ -186,15 +177,27 @@ public class BowAimbot extends Module {
         lerpPitch += (desiredPitch - lerpPitch)                                 * t + noisePitch;
         lerpPitch  = MathHelper.clamp_float(lerpPitch, -90.0F, 90.0F);
 
-        mc.thePlayer.rotationYaw = lerpYaw;
+        // GCD-snap deltas before writing to rotationYaw/Pitch — Grim's
+        // AimModulo360 flags any delta that isn't an integer multiple of the
+        // mouse-sensitivity GCD. Direct lerpYaw assignment leaks fractional
+        // values from the t-blend and noise terms.
+        float rawDeltaYaw = MathHelper.wrapAngleTo180_float(lerpYaw - mc.thePlayer.rotationYaw);
+        float patchedYaw = Utils.Player.patchGCD(rawDeltaYaw);
+        mc.thePlayer.rotationYaw += patchedYaw;
+        lerpYaw = mc.thePlayer.rotationYaw;
+
         mc.thePlayer.prevRotationYawHead = mc.thePlayer.rotationYawHead;
-        mc.thePlayer.rotationYawHead     = lerpYaw;
+        mc.thePlayer.rotationYawHead     = mc.thePlayer.rotationYaw;
         mc.thePlayer.prevRenderYawOffset = mc.thePlayer.renderYawOffset;
         mc.thePlayer.renderYawOffset    +=
-                MathHelper.wrapAngleTo180_float(lerpYaw - mc.thePlayer.renderYawOffset) * 0.35F;
+                MathHelper.wrapAngleTo180_float(mc.thePlayer.rotationYaw - mc.thePlayer.renderYawOffset) * 0.35F;
 
         if (aimPitch.isToggled()) {
-            mc.thePlayer.rotationPitch = lerpPitch;
+            float rawDeltaPitch = lerpPitch - mc.thePlayer.rotationPitch;
+            float patchedPitch = Utils.Player.patchGCD(rawDeltaPitch);
+            mc.thePlayer.rotationPitch = MathHelper.clamp_float(
+                    mc.thePlayer.rotationPitch + patchedPitch, -90.0F, 90.0F);
+            lerpPitch = mc.thePlayer.rotationPitch;
         }
     }
 

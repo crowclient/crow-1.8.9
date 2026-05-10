@@ -66,7 +66,6 @@ public class Logo extends Module {
 
         GlStateManager.pushMatrix();
 
-        boolean useGlow = HUD.enableGlow != null && HUD.enableGlow.isToggled();
         boolean useBlur = HUD.enableBlur != null && HUD.enableBlur.isToggled();
         int accent = GuiModule.getThemeColor(0);
         int accentRGB = accent & 0x00FFFFFF;
@@ -102,14 +101,7 @@ public class Logo extends Module {
             GlStateManager.translate(contentX, textY, 0);
             GlStateManager.scale(s, s, 1);
 
-            if (useGlow) {
-                FontUtil.bold.drawGlowString(CLIENT_NAME, 0, 0, 0xFFF2F4F7,
-                        0xFF000000 | accentRGB,
-                        Math.max(2.0F, (float) HUD.glowRadius.getInput() * 0.4F),
-                        (float) HUD.glowIntensity.getInput() * 0.8F);
-            } else {
-                FontUtil.bold.drawSmoothString(CLIENT_NAME, 0, 0, 0xFFF2F4F7);
-            }
+            FontUtil.bold.drawSmoothString(CLIENT_NAME, 0, 0, 0xFFF2F4F7);
 
             if (showVersion.isToggled()) {
                 float nameW = (float) FontUtil.bold.getStringWidth(CLIENT_NAME);

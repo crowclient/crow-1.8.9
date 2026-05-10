@@ -7,7 +7,6 @@ import crow.client.module.setting.impl.TickSetting;
 public class RecordingMode extends Module {
 
     public static TickSetting disableBlur;
-    public static TickSetting disableGlow;
     public static TickSetting disableStencil;
 
     private static boolean active = false;
@@ -18,7 +17,6 @@ public class RecordingMode extends Module {
         this.registerSetting(new DescriptionSetting("lightweight fallbacks for OBS."));
         this.registerSetting(new DescriptionSetting("Use Window Capture in OBS."));
         this.registerSetting(disableBlur = new TickSetting("Disable Blur", true));
-        this.registerSetting(disableGlow = new TickSetting("Disable Glow", true));
         this.registerSetting(disableStencil = new TickSetting("Disable Stencil", true));
     }
 
@@ -38,10 +36,6 @@ public class RecordingMode extends Module {
 
     public static boolean shouldSkipBlur() {
         return active && (disableBlur == null || disableBlur.isToggled());
-    }
-
-    public static boolean shouldSkipGlow() {
-        return active && (disableGlow == null || disableGlow.isToggled());
     }
 
     public static boolean shouldSkipStencil() {

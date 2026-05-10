@@ -67,48 +67,6 @@ public class FontRenderer extends CFont {
         return this.drawStringWithShadow(text, x2 - (float) (this.getStringWidth(text) / 2), y2, color);
     }
 
-    public void drawGlowString(String text, double x, float y, int textColor, int glowColor, float radius, float intensity) {
-        if (text == null || text.isEmpty()) return;
-        int glowRGB = glowColor & 0x00FFFFFF;
-        float ci = Math.max(0.0F, Math.min(1.5F, intensity));
-
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.tex.getGlTextureId());
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
-
-        this.additiveBlend = true;
-
-        float[][] rings = {
-            { radius * 0.33F, 0.45F * ci },
-            { radius * 0.66F, 0.25F * ci },
-            { radius,         0.12F * ci },
-        };
-
-        for (float[] ring : rings) {
-            float dist = Math.max(0.3F, ring[0]);
-            int a = Math.max(3, Math.min(255, (int) (ring[1] * 255.0F)));
-            int col = (a << 24) | glowRGB;
-
-            for (int d = 0; d < 8; d++) {
-                double angle = Math.PI * 2.0 * d / 8.0;
-                float ox = (float) Math.cos(angle) * dist;
-                float oy = (float) Math.sin(angle) * dist;
-                this.drawSmoothString(text, x + ox, y + oy, col);
-            }
-        }
-
-        this.additiveBlend = false;
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, this.tex.getGlTextureId());
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
-
-        this.drawSmoothString(text, x, y, textColor);
-    }
-
-    public void drawCenteredGlowString(String text, float x, float y, int textColor, int glowColor, float radius, float intensity) {
-        drawGlowString(text, x - (float) (this.getStringWidth(text) / 2), y, textColor, glowColor, radius, intensity);
-    }
-
     public float drawString(String text, double x, double y, int color, boolean shadow, float kerning) {
         x -= 1.0;
 
@@ -239,7 +197,6 @@ public class FontRenderer extends CFont {
             }
         }
 
-        GL11.glHint(GL11.GL_POLYGON_SMOOTH_HINT, GL11.GL_DONT_CARE);
         GlStateManager.resetColor();
         GL11.glPopMatrix();
         GL11.glColor4f(1, 1, 1, 1);

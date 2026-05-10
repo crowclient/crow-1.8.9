@@ -29,21 +29,17 @@ public final class MSAAFramebuffer {
     private static int prevViewportX, prevViewportY, prevViewportW, prevViewportH;
     private static boolean active = false;
 
-    private static final boolean SSAA_DISABLED = true;
-
     private MSAAFramebuffer() {}
 
-    @Deprecated
-    public static void setEnabled(boolean enabled) {
-
-    }
-
+    // Compat shim — actual work lives in render/aa/AAPipeline. The pipeline
+    // gates internally on AAConfig.current; if it's OFF, begin/end are
+    // effectively free.
     public static void begin() {
-
+        crow.client.render.aa.AAPipeline.beginUI();
     }
 
     public static void end() {
-
+        crow.client.render.aa.AAPipeline.endUI();
     }
 
     public static boolean isActive() {

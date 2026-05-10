@@ -10,6 +10,7 @@
         "MixinEntityPlayerSP",
         "MixinEntityRenderer",
         "MixinFontRenderer",
+        "MixinGlStateManager",
         "MixinGuiIngame",
         "MixinGuiMainMenu",
         "MixinGuiUtilRenderComponents",

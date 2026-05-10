@@ -10,7 +10,6 @@ import crow.client.module.setting.impl.ComboSetting;
 import crow.client.module.setting.impl.SliderSetting;
 import crow.client.module.setting.impl.TickSetting;
 import crow.client.utils.GUIBlurUtil;
-import crow.client.utils.GlowUtil;
 import crow.client.utils.RenderUtils;
 import crow.client.utils.Utils;
 import crow.client.utils.font.FontUtil;
@@ -98,8 +97,6 @@ public class Statistics extends Module {
     private int dragOffsetX;
     private int dragOffsetY;
     private int lastValidPing;
-    private int displayedPing;
-    private long lastPingUpdate;
 
     private static final SimpleDateFormat TIME_FORMAT = new SimpleDateFormat("h:mm a");
     private static final String[] CARDINALS = {"S", "SW", "W", "NW", "N", "NE", "E", "SE"};
@@ -247,13 +244,7 @@ public class Statistics extends Module {
     }
 
     private int getStablePing() {
-        long now = System.currentTimeMillis();
-        if (now - lastPingUpdate < 250L) {
-            return displayedPing;
-        }
-        lastPingUpdate = now;
-
-        if (mc.thePlayer == null || mc.getNetHandler() == null) return 0;
+        if (mc.thePlayer == null || mc.getNetHandler() == null) return lastValidPing;
         try {
             net.minecraft.client.network.NetworkPlayerInfo info =
                     mc.getNetHandler().getPlayerInfo(mc.thePlayer.getUniqueID());
@@ -261,11 +252,9 @@ public class Statistics extends Module {
             if (ping > 0 && ping < 10000) {
                 lastValidPing = ping;
             }
-            int targetPing = lastValidPing;
-            displayedPing = displayedPing == 0 ? targetPing : (int) (displayedPing + (targetPing - displayedPing) * 0.35F);
-            return displayedPing;
+            return lastValidPing;
         } catch (Exception e) {
-            return displayedPing > 0 ? displayedPing : lastValidPing;
+            return lastValidPing;
         }
     }
 
@@ -302,7 +291,6 @@ public class Statistics extends Module {
         int bottom = y + boxH;
         handleDragging(left, top, right, bottom);
 
-        boolean useGlow = HUD.enableGlow != null && HUD.enableGlow.isToggled();
         boolean useBlur = HUD.enableBlur != null && HUD.enableBlur.isToggled();
         int accent = GuiModule.getThemeColor(0);
         int accentRGB = accent & 0x00FFFFFF;
@@ -314,14 +302,9 @@ public class Statistics extends Module {
         }
 
         RenderUtils.drawRoundedRectAA(left, top, right, bottom, boxH / 2.0F, 0xD814171D);
-        if (useGlow) {
-            GlowUtil.drawGlow(left, top, boxW, boxH,
-                    (int) HUD.glowRadius.getInput(), boxH / 2.0F,
-                    0xFF000000 | accentRGB, (float) HUD.glowIntensity.getInput() * 0.45F);
-        }
 
         float textY = top + (boxH - getInlineHeight(true)) / 2.0F;
-        drawInlineText(text, left + 9, textY, accentRGB, useGlow, true);
+        drawInlineText(text, left + 9, textY, accentRGB, true);
     }
 
     private void renderClassic(List<StatLine> lines) {
@@ -330,11 +313,10 @@ public class Statistics extends Module {
         handleDragging(x, y, x + getClassicWidth(lines), y + Math.max(1, lines.size()) * getLineHeight());
 
         int accentRGB = GuiModule.getThemeColor(0) & 0x00FFFFFF;
-        boolean useGlow = HUD.enableGlow != null && HUD.enableGlow.isToggled();
         float drawY = y;
         for (StatLine line : lines) {
             String text = line.label + line.value;
-            drawValueText(text, x, drawY, 0xFFF2F4F7, accentRGB, useGlow, false);
+            drawValueText(text, x, drawY, 0xFFF2F4F7, accentRGB, false);
             drawY += getLineHeight();
         }
     }
@@ -349,16 +331,10 @@ public class Statistics extends Module {
         int w = getInlineWidth(text, false) + 14;
         handleDragging(x, y, x + w, y + h);
 
-        boolean useGlow = HUD.enableGlow != null && HUD.enableGlow.isToggled();
         int accentRGB = GuiModule.getThemeColor(0) & 0x00FFFFFF;
         RenderUtils.drawRoundedRectAA(x, y, x + w, y + h, h / 2.0F, 0xC414171D);
-        if (useGlow) {
-            GlowUtil.drawGlow(x, y, w, h,
-                    Math.max(4, (int) HUD.glowRadius.getInput() - 2), h / 2.0F,
-                    0xFF000000 | accentRGB, (float) HUD.glowIntensity.getInput() * 0.35F);
-        }
         float textY = y + (h - getInlineHeight(false)) / 2.0F;
-        drawInlineText(text, x + 7, textY, accentRGB, useGlow, false);
+        drawInlineText(text, x + 7, textY, accentRGB, false);
     }
 
     private String buildInlineText(List<StatLine> lines, boolean includeCrow, String separator) {
@@ -415,20 +391,11 @@ public class Statistics extends Module {
         return mc.fontRendererObj.FONT_HEIGHT;
     }
 
-    private void drawInlineText(String text, float x, float y, int accentRGB, boolean useGlow, boolean boldStyle) {
+    private void drawInlineText(String text, float x, float y, int accentRGB, boolean boldStyle) {
         int color = 0xFFF2F4F7;
         if (customFont.isToggled()) {
-            if (useGlow) {
-                (boldStyle ? FontUtil.semiBold : FontUtil.normal).drawGlowString(
-                        text, x, y, color, 0xFF000000 | accentRGB, 2.0F, 0.4F);
-            } else {
-                (boldStyle ? FontUtil.semiBold : FontUtil.normal).drawSmoothString(text, x, y, color);
-            }
+            (boldStyle ? FontUtil.semiBold : FontUtil.normal).drawSmoothString(text, x, y, color);
         } else {
-            if (useGlow) {
-                RenderUtils.drawVanillaTextGlow(mc.fontRendererObj, text, x, y,
-                        0xFF000000 | accentRGB, 2.0F, 0.4F);
-            }
             mc.fontRendererObj.drawString(text, (int) x, (int) y, color, false);
         }
     }
@@ -441,20 +408,10 @@ public class Statistics extends Module {
         }
     }
 
-    private void drawValueText(String text, float x, float y, int color, int accentRGB, boolean useGlow, boolean strong) {
-        float radius = strong ? 2.0F : 1.75F;
-        float intensity = strong ? 0.7F : 0.5F;
+    private void drawValueText(String text, float x, float y, int color, int accentRGB, boolean strong) {
         if (customFont.isToggled()) {
-            if (useGlow) {
-                FontUtil.semiBold.drawGlowString(text, x, y, color, 0xFF000000 | accentRGB, radius, intensity);
-            } else {
-                FontUtil.semiBold.drawSmoothString(text, x, y, color);
-            }
+            FontUtil.semiBold.drawSmoothString(text, x, y, color);
         } else {
-            if (useGlow) {
-                RenderUtils.drawVanillaTextGlow(mc.fontRendererObj, text, x, y,
-                        0xFF000000 | accentRGB, radius, intensity);
-            }
             mc.fontRendererObj.drawString(text, (int) x, (int) y, color, false);
         }
     }
@@ -640,7 +597,6 @@ public class Statistics extends Module {
         int boxB = y + barH;
 
         boolean useBlur = HUD.enableBlur != null && HUD.enableBlur.isToggled();
-        boolean useGlow = HUD.enableGlow != null && HUD.enableGlow.isToggled();
         int accentRGB = GuiModule.getThemeColor(0) & 0x00FFFFFF;
 
         float corner = barH / 2.0F;
@@ -698,7 +654,7 @@ public class Statistics extends Module {
             if (i == draggingChipIdx) {
                 chipX += dragVisualDx;
             }
-            drawChip(chips.get(i), chipX, chipMidY, accentRGB, useGlow,
+            drawChip(chips.get(i), chipX, chipMidY, accentRGB,
                      iconGap, iconH, logoIcon, scale,
                      i == draggingChipIdx);
         }
@@ -823,7 +779,7 @@ public class Statistics extends Module {
         }
     }
 
-    private void drawChip(Chip chip, int x, int midY, int accentRGB, boolean useGlow,
+    private void drawChip(Chip chip, int x, int midY, int accentRGB,
                            int iconGap, int chipIconSize, int logoIconSize,
                            float scale, boolean isDragging) {
         int textAlpha = isDragging ? 0xCC : 0xFF;
@@ -849,7 +805,7 @@ public class Statistics extends Module {
             GL11.glPushMatrix();
             GL11.glTranslatef(cursorX, textY, 0.0F);
             GL11.glScalef(scale, scale, 1.0F);
-            drawValueText(chip.text, 0, 0, textColor, accentRGB, useGlow, false);
+            drawValueText(chip.text, 0, 0, textColor, accentRGB, false);
             GL11.glPopMatrix();
         }
     }

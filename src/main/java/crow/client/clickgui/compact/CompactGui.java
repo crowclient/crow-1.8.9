@@ -237,6 +237,19 @@ public class CompactGui extends GuiScreen {
     }
 
     @Override
+    public void setWorldAndResolution(net.minecraft.client.Minecraft mcIn, int scaledW, int scaledH) {
+        // Render the GUI in display-pixel coordinates so it looks the same
+        // physical size at every guiScale setting. Passing displayWidth/Height
+        // as the GuiScreen's width/height has two effects:
+        //  1. Layout math in initGui (containerW/H, etc.) is in display px.
+        //  2. super.handleMouseInput's mouse-coord calculation
+        //     (Mouse.getEventX() * this.width / displayWidth) reduces to just
+        //     Mouse.getEventX(), so mouse handlers receive display px too —
+        //     same coordinate space as the layout. No conversion needed.
+        super.setWorldAndResolution(mcIn, mcIn.displayWidth, mcIn.displayHeight);
+    }
+
+    @Override
     public void initGui() {
         super.initGui();
         openTime = System.currentTimeMillis();
@@ -300,12 +313,27 @@ public class CompactGui extends GuiScreen {
             return;
         }
 
-        crow.client.utils.MSAAFramebuffer.begin();
+        // Cancel Minecraft's GUI-scale projection so 1 unit = 1 display px.
+        // Combined with setWorldAndResolution feeding displayWidth/Height,
+        // this makes the GUI render at a fixed physical size regardless of
+        // the user's guiScale setting.
+        int sf = Math.max(1, new ScaledResolution(mc).getScaleFactor());
+        GL11.glPushMatrix();
+        GL11.glScalef(1.0F / sf, 1.0F / sf, 1.0F);
         try {
-            drawScreenMSAA(mouseX, mouseY, partialTicks);
+            crow.client.utils.MSAAFramebuffer.begin();
+            try {
+                drawScreenMSAA(mouseX, mouseY, partialTicks);
+            } finally {
+                crow.client.utils.MSAAFramebuffer.end();
+            }
         } finally {
-            crow.client.utils.MSAAFramebuffer.end();
+            GL11.glPopMatrix();
         }
+    }
+
+    private void glScissorDp(int x, int y, int w, int h) {
+        GL11.glScissor(x, mc.displayHeight - (y + h), w, h);
     }
 
     private void drawScreenMSAA(int mouseX, int mouseY, float partialTicks) {
@@ -568,7 +596,7 @@ public class CompactGui extends GuiScreen {
         contentScissorW = containerW - SIDEBAR_WIDTH - 16;
         contentScissorH = contentH + 8;
 
-        RenderUtils.glScissor(contentScissorX, contentScissorY, contentScissorW, contentScissorH);
+        glScissorDp(contentScissorX, contentScissorY, contentScissorW, contentScissorH);
         GL11.glEnable(GL11.GL_SCISSOR_TEST);
 
         if (customConfigView) {
@@ -594,7 +622,7 @@ public class CompactGui extends GuiScreen {
         GL11.glDisable(GL11.GL_SCISSOR_TEST);
 
         if (!customConfigView && !customThemeView && expandedCard != null && !expandedCard.usesDetachedSettingsPanel()) {
-            RenderUtils.glScissor(contentScissorX, contentScissorY, contentScissorW, contentScissorH);
+            glScissorDp(contentScissorX, contentScissorY, contentScissorW, contentScissorH);
             GL11.glEnable(GL11.GL_SCISSOR_TEST);
             expandedCard.drawExpandedSettings(mouseX, mouseY, palette);
             GL11.glDisable(GL11.GL_SCISSOR_TEST);
@@ -634,7 +662,7 @@ public class CompactGui extends GuiScreen {
         detachedScissorW = contentW;
         detachedScissorH = contentH;
 
-        RenderUtils.glScissor(detachedScissorX, detachedScissorY, detachedScissorW, detachedScissorH);
+        glScissorDp(detachedScissorX, detachedScissorY, detachedScissorW, detachedScissorH);
         GL11.glEnable(GL11.GL_SCISSOR_TEST);
         expandedCard.drawDetachedSettings(mouseX, mouseY, palette, contentX, contentY, contentW, (int) detachedScrollAnim.get());
         GL11.glDisable(GL11.GL_SCISSOR_TEST);

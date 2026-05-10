@@ -2,7 +2,6 @@ package crow.client.module.modules.world;
 
 import com.google.common.eventbus.Subscribe;
 import crow.client.event.impl.GameLoopEvent;
-import crow.client.event.impl.LookEvent;
 import crow.client.event.impl.MoveInputEvent;
 import crow.client.event.impl.Render2DEvent;
 import crow.client.event.impl.UpdateEvent;
@@ -14,6 +13,7 @@ import crow.client.module.setting.impl.TickSetting;
 import crow.client.module.modules.HUD;
 import crow.client.utils.GUIBlurUtil;
 import crow.client.utils.RenderUtils;
+import crow.client.utils.SilentAim;
 import crow.client.utils.Utils;
 import crow.client.utils.font.FontUtil;
 import net.minecraft.block.Block;
@@ -56,11 +56,7 @@ public class Scaffold extends Module {
     private final TickSetting   eagleSneak;
     private final SliderSetting towerMotion;
 
-    private float serverYaw, serverPitch;
-    private float prevServerYaw, prevServerPitch;
     private float targetYaw, targetPitch;
-
-    private double tremorPhaseYaw, tremorPhasePitch;
 
     private boolean hasTarget;
     private boolean sneakActive;
@@ -105,21 +101,14 @@ public class Scaffold extends Module {
     @Override
     public void onEnable() {
         if (Utils.Player.isPlayerInGame()) {
-            serverYaw       = mc.thePlayer.rotationYaw;
-            serverPitch     = mc.thePlayer.rotationPitch;
-            prevServerYaw   = serverYaw;
-            prevServerPitch = serverPitch;
-            targetYaw       = serverYaw;
-            targetPitch     = serverPitch;
+            targetYaw       = mc.thePlayer.rotationYaw;
+            targetPitch     = mc.thePlayer.rotationPitch;
             keepYLevel      = mc.thePlayer.posY;
         }
         hasTarget   = false;
         sneakActive = false;
         delayTicks  = 0;
         clearHypixel();
-
-        tremorPhaseYaw   = ThreadLocalRandom.current().nextDouble() * Math.PI * 2.0;
-        tremorPhasePitch = ThreadLocalRandom.current().nextDouble() * Math.PI * 2.0;
     }
 
     @Override
@@ -228,74 +217,42 @@ public class Scaffold extends Module {
     }
 
     private void tickRotation() {
-        prevServerYaw   = serverYaw;
-        prevServerPitch = serverPitch;
-
         float speed = (float) rotSpeed.getInput();
-        float yDelta = MathHelper.wrapAngleTo180_float(targetYaw - serverYaw);
-        float pDelta = targetPitch - serverPitch;
-
-        float easeFactor = 0.35F + (float)(ThreadLocalRandom.current().nextGaussian() * 0.04);
-        easeFactor = MathHelper.clamp_float(easeFactor, 0.25F, 0.55F);
-
-        easeFactor *= speed / 14.0F;
-        easeFactor = Math.min(easeFactor, 0.85F);
-
-        float yStep = yDelta * easeFactor;
-        float pStep = pDelta * easeFactor * 0.85F;
-
-        yStep = MathHelper.clamp_float(yStep, -speed, speed);
-        pStep = MathHelper.clamp_float(pStep, -speed * 0.7F, speed * 0.7F);
-
-        if (Math.abs(yDelta) < 0.3F) yStep = yDelta;
-        if (Math.abs(pDelta) < 0.2F) pStep = pDelta;
-
-        long t = System.nanoTime();
-        double tSec = t / 1_000_000_000.0;
-        float closeness = 1.0F - MathHelper.clamp_float(
-                (Math.abs(yDelta) + Math.abs(pDelta)) / 15.0F, 0.0F, 1.0F);
-        float tremorScale = 0.08F + closeness * 0.12F;
-
-        float tremorY = (float)(
-                Math.sin(tSec * 2.7 + tremorPhaseYaw)   * tremorScale * 0.9 +
-                Math.sin(tSec * 6.3 + tremorPhaseYaw)   * tremorScale * 0.35);
-        float tremorP = (float)(
-                Math.sin(tSec * 3.1 + tremorPhasePitch)  * tremorScale * 0.5 +
-                Math.sin(tSec * 5.7 + tremorPhasePitch)  * tremorScale * 0.2);
-
-        serverYaw   += yStep + tremorY;
-        serverPitch += pStep + tremorP;
-        serverPitch  = MathHelper.clamp_float(serverPitch, 45.0F, 89.0F);
+        SilentAim.Request req = new SilentAim.Request();
+        req.yaw = targetYaw;
+        req.pitch = targetPitch;
+        req.profile = SilentAim.Profile.PLACE;
+        req.priority = 40;
+        req.maxYawStepDeg = speed;
+        req.maxPitchStepDeg = speed * 0.85f;
+        req.fixMovement = true;
+        req.claimant = this;
+        SilentAim.aim(req);
     }
 
     private void driftToCamera() {
-        prevServerYaw   = serverYaw;
-        prevServerPitch = serverPitch;
-
-        float camYaw   = mc.thePlayer.rotationYaw;
-        float camPitch = mc.thePlayer.rotationPitch;
-
-        float yDelta = MathHelper.wrapAngleTo180_float(camYaw - serverYaw);
-        float pDelta = camPitch - serverPitch;
-
-        float ease = 0.15F + (float)(ThreadLocalRandom.current().nextGaussian() * 0.02);
-        ease = MathHelper.clamp_float(ease, 0.08F, 0.25F);
-
-        float yStep = yDelta * ease;
-        float pStep = pDelta * ease;
-
-        float maxDrift = 4.0F;
-        yStep = MathHelper.clamp_float(yStep, -maxDrift, maxDrift);
-        pStep = MathHelper.clamp_float(pStep, -maxDrift, maxDrift);
-
-        serverYaw   += yStep;
-        serverPitch += pStep;
+        // Glide silent yaw back toward the user's rotation when no place target.
+        SilentAim.Request req = new SilentAim.Request();
+        req.yaw = mc.thePlayer.rotationYaw;
+        req.pitch = mc.thePlayer.rotationPitch;
+        req.profile = SilentAim.Profile.PRECISE;
+        req.priority = 30;
+        req.maxYawStepDeg = 4.0f;
+        req.maxPitchStepDeg = 4.0f;
+        req.fixMovement = false;
+        req.syncVisualHead = false;
+        req.claimant = this;
+        SilentAim.aim(req);
     }
 
     private boolean rotationReady() {
-        float yOff = Math.abs(MathHelper.wrapAngleTo180_float(targetYaw - serverYaw));
-        float pOff = Math.abs(targetPitch - serverPitch);
+        float yOff = Math.abs(MathHelper.wrapAngleTo180_float(targetYaw - SilentAim.getServerYaw()));
+        float pOff = Math.abs(targetPitch - SilentAim.getServerPitch());
         return yOff < 5.0F && pOff < 5.0F;
+    }
+
+    private float currentYaw() {
+        return hasTarget ? SilentAim.getServerYaw() : mc.thePlayer.rotationYaw;
     }
 
     private float[] calcRotation(Vec3 target) {
@@ -517,15 +474,16 @@ public class Scaffold extends Module {
     }
 
     private Vec3 movementDir() {
+        float yaw = currentYaw();
         if (silentForwardWalk.isToggled()) {
-            float r = (float) Math.toRadians(serverYaw);
+            float r = (float) Math.toRadians(yaw);
             return new Vec3(-Math.sin(r), 0, Math.cos(r));
         }
         float fwd = mc.thePlayer.moveForward;
         float str = mc.thePlayer.moveStrafing;
         float yawBase = (fwd == 0 && str == 0)
-                ? serverYaw
-                : strafeYaw(fwd, str, serverYaw);
+                ? yaw
+                : strafeYaw(fwd, str, yaw);
         float r = (float) Math.toRadians(yawBase);
         return new Vec3(-Math.sin(r), 0, Math.cos(r));
     }
@@ -542,7 +500,7 @@ public class Scaffold extends Module {
 
     private void tickSafeWalk() {
         if (!mc.thePlayer.onGround) return;
-        float yawRef = hasTarget ? serverYaw : mc.thePlayer.rotationYaw;
+        float yawRef = currentYaw();
         double yr = Math.toRadians(yawRef);
         double fx = -Math.sin(yr) * 0.6;
         double fz =  Math.cos(yr) * 0.6;
@@ -574,14 +532,12 @@ public class Scaffold extends Module {
     @Subscribe
     public void onUpdate(UpdateEvent e) {
         if (!Utils.Player.isPlayerInGame()) return;
-        e.setYaw(serverYaw);
-        e.setPitch(serverPitch);
+        SilentAim.applyToUpdate(e);
     }
 
     @Subscribe
     public void onMoveInput(MoveInputEvent e) {
         if (!Utils.Player.isPlayerInGame() || !hasTarget) return;
-        e.setYaw(serverYaw);
         if (!silentForwardWalk.isToggled()) return;
         float f = e.getForward();
         float s = e.getStrafe();
@@ -590,21 +546,6 @@ public class Scaffold extends Module {
         if (mag > 1.0F) mag = 1.0F;
         e.setForward(mag);
         e.setStrafe(0.0F);
-    }
-
-    @Subscribe
-    public void onLook(LookEvent e) {
-        if (!Utils.Player.isPlayerInGame() || !hasTarget) return;
-        if (mc.gameSettings.thirdPersonView != 0) {
-            e.setYaw(serverYaw);
-            e.setPitch(serverPitch);
-            e.setPrevYaw(prevServerYaw);
-            e.setPrevPitch(prevServerPitch);
-            mc.thePlayer.prevRotationYawHead = prevServerYaw;
-            mc.thePlayer.rotationYawHead     = serverYaw;
-            mc.thePlayer.prevRenderYawOffset  = prevServerYaw;
-            mc.thePlayer.renderYawOffset      = serverYaw;
-        }
     }
 
     @Subscribe

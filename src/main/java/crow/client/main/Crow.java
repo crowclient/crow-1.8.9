@@ -21,6 +21,7 @@ import crow.client.utils.DebugInfoRenderer;
 import crow.client.utils.MouseManager;
 import crow.client.utils.PingChecker;
 import crow.client.utils.RenderUtils;
+import crow.client.utils.SilentAim;
 import crow.client.utils.Utils;
 import crow.client.utils.font.FontUtil;
 import crow.client.utils.version.VersionManager;
@@ -116,6 +117,7 @@ public class Crow {
         register(new MouseManager());
         register(new PingChecker());
         register(new ForgeEventListener());
+        register(SilentAim.instance());
         eventBus.register(NotificationRenderer.notificationRenderer);
 
         FontUtil.bootstrap();

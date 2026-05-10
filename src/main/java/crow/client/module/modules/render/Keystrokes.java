@@ -67,10 +67,6 @@ public class Keystrokes extends Module {
         KeyStroke.showMouseButtons = showMouseButtons.isToggled();
         KeyStroke.outline = outline.isToggled();
         KeyStroke.blurBackground = HUD.enableBlur != null && HUD.enableBlur.isToggled();
-        KeyStroke.glow = HUD.enableGlow != null && HUD.enableGlow.isToggled();
-        KeyStroke.glowRadius = HUD.glowRadius != null ? (float) HUD.glowRadius.getInput() : 10.0F;
-        KeyStroke.glowIntensity = HUD.glowIntensity != null ? (float) HUD.glowIntensity.getInput() : 0.8F;
-        KeyStroke.glowColor = crow.client.module.modules.client.GuiModule.getThemeColor(0);
         KeyStroke.size = (float) size.getInput();
         KeyStroke.backgroundOpacity = (int) backgroundOpacity.getInput();
         KeyStroke.currentColorNumber = ((KeystrokeColor) colorMode.getMode()).ordinal();

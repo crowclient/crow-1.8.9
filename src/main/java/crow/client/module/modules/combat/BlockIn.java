@@ -1,13 +1,12 @@
 package crow.client.module.modules.combat;
 
 import com.google.common.eventbus.Subscribe;
-import crow.client.event.impl.LookEvent;
-import crow.client.event.impl.MoveInputEvent;
 import crow.client.event.impl.UpdateEvent;
 import crow.client.module.Module;
 import crow.client.module.setting.impl.ComboSetting;
 import crow.client.module.setting.impl.SliderSetting;
 import crow.client.module.setting.impl.TickSetting;
+import crow.client.utils.SilentAim;
 import crow.client.utils.Utils;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockLiquid;
@@ -50,6 +49,7 @@ public class BlockIn extends Module {
     private final TickSetting swing;
     private final TickSetting autoDisable;
     private final TickSetting grimBypass;
+    private final TickSetting silent;
     private final SliderSetting randomOffsetStrength;
     private final ComboSetting<RaycastMode> raycastMode;
 
@@ -63,23 +63,19 @@ public class BlockIn extends Module {
     private boolean placeThisPost;
     private int delayTicks;
 
-    private float serverYaw;
-    private float serverPitch;
-    private float prevServerYaw;
-    private float prevServerPitch;
-
     private int rotationTicks;
 
     public BlockIn() {
         super("BlockIn", ModuleCategory.combat);
         this.registerSetting(placeRange = new SliderSetting("Place Range", 4.5D, 3.0D, 6.0D, 0.1D));
         this.registerSetting(placeDelay = new SliderSetting("Place Delay", 0.0D, 0.0D, 8.0D, 1.0D));
-        this.registerSetting(rotationSpeed = new SliderSetting("Rotation Speed", 28.0D, 2.0D, 40.0D, 0.5D));
+        this.registerSetting(rotationSpeed = new SliderSetting("Rotation Speed", 32.0D, 2.0D, 60.0D, 0.5D));
         this.registerSetting(topCap = new TickSetting("Top cap", true));
         this.registerSetting(bottomCap = new TickSetting("Bottom cap", false));
         this.registerSetting(swing = new TickSetting("Swing arm", true));
         this.registerSetting(autoDisable = new TickSetting("Auto disable", true));
         this.registerSetting(grimBypass = new TickSetting("Grim Bypass Mode", true));
+        this.registerSetting(silent = new TickSetting("Silent", false));
         this.registerSetting(randomOffsetStrength = new SliderSetting("Random Offset Strength", 0.45D, 0.05D, 1.5D, 0.05D));
         this.registerSetting(raycastMode = new ComboSetting<>("Raycast Mode", RaycastMode.Grim));
     }
@@ -87,12 +83,6 @@ public class BlockIn extends Module {
     @Override
     public void onEnable() {
         resetRuntime(false);
-        if (Utils.Player.isPlayerInGame()) {
-            serverYaw = mc.thePlayer.rotationYaw;
-            serverPitch = mc.thePlayer.rotationPitch;
-            prevServerYaw = serverYaw;
-            prevServerPitch = serverPitch;
-        }
     }
 
     @Override
@@ -114,27 +104,6 @@ public class BlockIn extends Module {
         }
     }
 
-    @Subscribe
-    public void onMoveInput(MoveInputEvent e) {
-        if (!hasTarget) {
-            return;
-        }
-        e.setYaw(serverYaw);
-    }
-
-    @Subscribe
-    public void onLook(LookEvent e) {
-        if (!hasTarget || mc.gameSettings.thirdPersonView == 0) {
-            return;
-        }
-
-        e.setYaw(serverYaw);
-        e.setPitch(serverPitch);
-        e.setPrevYaw(prevServerYaw);
-        e.setPrevPitch(prevServerPitch);
-        syncVisualRotations();
-    }
-
     private void tickPre(UpdateEvent e) {
         placeThisPost = false;
 
@@ -144,12 +113,6 @@ public class BlockIn extends Module {
 
         if (!active) {
             hasTarget = false;
-            serverYaw = mc.thePlayer.rotationYaw;
-            serverPitch = mc.thePlayer.rotationPitch;
-            prevServerYaw = serverYaw;
-            prevServerPitch = serverPitch;
-            e.setYaw(serverYaw);
-            e.setPitch(serverPitch);
             return;
         }
 
@@ -157,8 +120,6 @@ public class BlockIn extends Module {
             int blockSlot = findBestBlockSlot();
             if (blockSlot == -1) {
                 finish();
-                e.setYaw(serverYaw);
-                e.setPitch(serverPitch);
                 return;
             }
             mc.thePlayer.inventory.currentItem = blockSlot;
@@ -174,15 +135,63 @@ public class BlockIn extends Module {
 
         if (currentTarget == null) {
             finish();
-            e.setYaw(serverYaw);
-            e.setPitch(serverPitch);
             return;
         }
 
+        // Refresh placement angles from the fixed hit vec each tick. Without
+        // this, jumping/walking mid-place leaves the spring chasing stale
+        // angles → server-side raycast misses the face → RotationPlace.
+        float[] freshRot = computePlacementAngles(currentTarget.hitVec);
+        if (!grimBypass.isToggled()) {
+            freshRot = applyPlacementRandomization(freshRot[0], freshRot[1], currentTarget.targetPos);
+        }
+        // Always apply uniqueness offset — defeats Grim's DuplicateRotPlace,
+        // which fires when two placements land at the same yaw (e.g.
+        // north-feet and north-head).
+        freshRot = applyUniquenessOffset(freshRot[0], freshRot[1], currentTarget.targetPos);
+        currentTarget.rotationYaw = freshRot[0];
+        currentTarget.rotationPitch = freshRot[1];
+
         hasTarget = true;
-        tickRotation();
-        e.setYaw(serverYaw);
-        e.setPitch(serverPitch);
+        rotationTicks++;
+
+        // Map the user's Rotation Speed slider (2..60) to spring stiffness
+        // (0.18..0.70). Cap at 0.70 (not 0.95) so even at slider max a 90°
+        // turn between adjacent walls takes ~3 ticks of visible motion rather
+        // than resolving in 1 tick (which reads as an instant snap).
+        float speed = (float) rotationSpeed.getInput();
+        float t = MathHelper.clamp_float((speed - 2f) / (60f - 2f), 0f, 1f);
+        float stiff = 0.18f + t * (0.70f - 0.18f);
+
+        SilentAim.Request req = new SilentAim.Request();
+        req.yaw = currentTarget.rotationYaw;
+        req.pitch = currentTarget.rotationPitch;
+        req.profile = SilentAim.Profile.PLACE;
+        req.priority = 60;
+        req.maxYawStepDeg = speed;
+        req.maxPitchStepDeg = speed * 0.85f;
+        req.stiffness = stiff;
+        req.disableTremor = true;     // sub-degree wobble breaks RotationPlace
+        req.disableReaction = true;   // target switches between walls shouldn't stutter
+        req.claimant = this;
+        SilentAim.aim(req);
+
+        // Always apply to the event so the C03 packet carries the placement
+        // rotation. The event was constructed from rotationYaw at PRE-time,
+        // so even in visible mode where we update rotationYaw afterwards,
+        // the event's frozen yaw needs to be overwritten — otherwise the
+        // packet sends the pre-rotation value and Grim flags RotationPlace.
+        SilentAim.applyToUpdate(e);
+
+        if (!silent.isToggled()) {
+            // Visible mode also drives the player's actual camera. serverYaw
+            // is already GCD-aligned by SilentAim's snap, so direct
+            // assignment is safe — patchGCD on the delta would round small
+            // adjustments to zero (airplace bug).
+            mc.thePlayer.rotationYaw = SilentAim.getServerYaw();
+            mc.thePlayer.rotationPitch = MathHelper.clamp_float(
+                    SilentAim.getServerPitch(), -89.5F, 89.5F);
+        }
 
         if (delayTicks <= 0 && rotReady()) {
 
@@ -272,9 +281,12 @@ public class BlockIn extends Module {
             }
 
             float[] rotations = computePlacementAngles(found.hitVec);
-            float[] randomized = applyPlacementRandomization(rotations[0], rotations[1], target);
-            found.rotationYaw = randomized[0];
-            found.rotationPitch = randomized[1];
+            if (!grimBypass.isToggled()) {
+                rotations = applyPlacementRandomization(rotations[0], rotations[1], target);
+            }
+            rotations = applyUniquenessOffset(rotations[0], rotations[1], target);
+            found.rotationYaw = rotations[0];
+            found.rotationPitch = rotations[1];
             currentTarget = found;
             return;
         }
@@ -309,54 +321,24 @@ public class BlockIn extends Module {
         return new float[]{yaw, pitch};
     }
 
-    private void tickRotation() {
-        prevServerYaw = serverYaw;
-        prevServerPitch = serverPitch;
-        rotationTicks++;
-
-        float targetYaw = currentTarget.rotationYaw;
-        float targetPitch = currentTarget.rotationPitch;
-        ThreadLocalRandom random = ThreadLocalRandom.current();
-
-        float baseSpeed = Math.max(1.0F, (float) rotationSpeed.getInput());
-        float maxTurn = baseSpeed * (0.88F + random.nextFloat() * 0.18F);
-
-        float yawDelta = MathHelper.wrapAngleTo180_float(targetYaw - serverYaw);
-        float pitchDelta = targetPitch - serverPitch;
-
-        float yawProportion = 0.55F + random.nextFloat() * 0.10F;
-        float pitchProportion = 0.50F + random.nextFloat() * 0.10F;
-
-        float yawStep = MathHelper.clamp_float(yawDelta * yawProportion, -maxTurn, maxTurn);
-        float pitchStep = MathHelper.clamp_float(pitchDelta * pitchProportion, -maxTurn * 0.85F, maxTurn * 0.85F);
-
-        float jitter = baseSpeed * 0.010F;
-        yawStep += (random.nextFloat() - 0.5F) * jitter;
-        pitchStep += (random.nextFloat() - 0.5F) * jitter * 0.6F;
-
-        yawStep = patchRotationStep(yawStep, yawDelta);
-        pitchStep = patchRotationStep(pitchStep, pitchDelta);
-
-        serverYaw += yawStep;
-        serverPitch = MathHelper.clamp_float(serverPitch + pitchStep, -89.5F, 89.5F);
-        syncVisualRotations();
-    }
-
-    private float patchRotationStep(float step, float targetDelta) {
-        if (Math.abs(targetDelta) <= 0.001F) {
-            return 0.0F;
-        }
-
-        float patched = Utils.Player.patchGCD(step);
-        if (patched == 0.0F) {
-            float gcd = Utils.Player.getGcd();
-            patched = (float) Math.copySign(Math.min(Math.abs(targetDelta), gcd), targetDelta);
-        }
-
-        if (Math.abs(patched) > Math.abs(targetDelta)) {
-            patched = targetDelta;
-        }
-        return patched;
+    /**
+     * Small deterministic-per-blockpos jitter added to every placement,
+     * including in grimBypass mode. Without this, north-feet and north-head
+     * (different blocks but identical horizontal direction) get sent with
+     * identical yaw, which Grim's DuplicateRotPlace flags as bot-like.
+     * 0.08° at typical clutch distance ≈ 4mm displacement on the face — well
+     * within RotationPlace's raycast tolerance.
+     */
+    private float[] applyUniquenessOffset(float yaw, float pitch, BlockPos targetPos) {
+        long seed = Double.doubleToLongBits((double) targetPos.getX()) * 0xC2B2AE3D27D4EB4FL
+                  ^ Double.doubleToLongBits((double) targetPos.getY()) * 0x165667B19E3779F9L
+                  ^ Double.doubleToLongBits((double) targetPos.getZ()) * 0xD6E8FEB86659FD93L;
+        float fYaw   = ((seed         & 0xFFFF) / 65535.0F) - 0.5F;
+        float fPitch = (((seed >>> 16) & 0xFFFF) / 65535.0F) - 0.5F;
+        yaw   += fYaw   * 0.16F;   // ±0.08°
+        pitch += fPitch * 0.10F;   // ±0.05°
+        pitch = MathHelper.clamp_float(pitch, -89.5F, 89.5F);
+        return new float[]{yaw, pitch};
     }
 
     private boolean rotReady() {
@@ -364,9 +346,10 @@ public class BlockIn extends Module {
             return false;
         }
 
-        float yawDiff = Math.abs(MathHelper.wrapAngleTo180_float(currentTarget.rotationYaw - serverYaw));
-        float pitchDiff = Math.abs(currentTarget.rotationPitch - serverPitch);
-        float threshold = grimBypass.isToggled() ? 2.15F : 4.0F;
+        float yawDiff = Math.abs(MathHelper.wrapAngleTo180_float(
+                currentTarget.rotationYaw - SilentAim.getServerYaw()));
+        float pitchDiff = Math.abs(currentTarget.rotationPitch - SilentAim.getServerPitch());
+        float threshold = grimBypass.isToggled() ? 0.6F : 2.0F;
         return yawDiff <= threshold && pitchDiff <= threshold;
     }
 
@@ -375,7 +358,9 @@ public class BlockIn extends Module {
             return true;
         }
 
-        MovingObjectPosition hit = rayTrace(serverYaw, serverPitch, placeRange.getInput() + 0.75D);
+        MovingObjectPosition hit = rayTrace(
+                SilentAim.getServerYaw(), SilentAim.getServerPitch(),
+                placeRange.getInput() + 0.75D);
         if (hit == null || hit.typeOfHit != MovingObjectPosition.MovingObjectType.BLOCK) {
             return false;
         }
@@ -449,9 +434,17 @@ public class BlockIn extends Module {
             return dist > maxDistance + 2.0D;
         });
 
+        // Sort by Y level first, then by yaw angle around the anchor so the
+        // placement chain walks the wall ring (e.g. east → south → west →
+        // north — 90° turns) instead of the original add-order which jumped
+        // east → west → south → north (180° flips between adjacent
+        // placements). Smaller per-placement turns mean the spring doesn't
+        // need to settle a 180° swing in a few ticks → no visible snap.
+        final int anchorX = anchorPos.getX();
+        final int anchorZ = anchorPos.getZ();
         placeQueue.sort(Comparator.<BlockPos>comparingInt(BlockPos::getY)
                 .thenComparingDouble(pos ->
-                        eyes.distanceTo(new Vec3(pos.getX() + 0.5D, pos.getY() + 0.5D, pos.getZ() + 0.5D))));
+                        Math.atan2(pos.getZ() - anchorZ, pos.getX() - anchorX)));
     }
 
     private PlaceInfo findPlacement(BlockPos target) {
@@ -525,13 +518,6 @@ public class BlockIn extends Module {
     private boolean isSolid(BlockPos pos) {
         Block block = mc.theWorld.getBlockState(pos).getBlock();
         return block != Blocks.air && !(block instanceof BlockLiquid);
-    }
-
-    private void syncVisualRotations() {
-        mc.thePlayer.prevRotationYawHead = mc.thePlayer.rotationYawHead;
-        mc.thePlayer.rotationYawHead = serverYaw;
-        mc.thePlayer.prevRenderYawOffset = mc.thePlayer.renderYawOffset;
-        mc.thePlayer.renderYawOffset += MathHelper.wrapAngleTo180_float(serverYaw - mc.thePlayer.renderYawOffset) * 0.4F;
     }
 
     private void finish() {

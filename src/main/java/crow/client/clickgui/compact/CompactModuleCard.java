@@ -94,7 +94,7 @@ public class CompactModuleCard {
         if (usesDetachedSettingsPanel()) {
             return h;
         }
-        return h + (int) (getSettingsHeight() * expandAnim.get());
+        return h + getSettingsHeight();
     }
 
     private int getSettingsHeight() {

@@ -37,13 +37,23 @@ public class ClickGui extends GuiScreen {
     private static boolean firstOpenDone = false;
     private long loadingStart;
     private static final long LOADING_DURATION = 600L;
-    private static final ResourceLocation CROW_ICON = RenderUtils.getResourcePath("/assets/crow/crow.png");
+    private static ResourceLocation CROW_ICON;
 
     public static int screenWidth = 1;
     public static int screenHeight = 1;
 
-    private static final ResourceLocation BLUR_SHADER =
-            new ResourceLocation("shaders/post/blur.json");
+    private static ResourceLocation BLUR_SHADER;
+
+    static {
+        try {
+            CROW_ICON = RenderUtils.getResourcePath("/assets/crow/crow.png");
+        } catch (Throwable ignored) {
+        }
+        try {
+            BLUR_SHADER = new ResourceLocation("shaders/post/blur.json");
+        } catch (Throwable ignored) {
+        }
+    }
 
     public static int getRainbowAtX(int x) {
         return getRainbowAt(x, 0.0F, 1.0F, 1.0F);

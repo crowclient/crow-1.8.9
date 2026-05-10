@@ -6,7 +6,6 @@ import crow.client.module.modules.render.Notifications;
 import crow.client.module.modules.render.Notifications.Position;
 import crow.client.module.modules.render.Notifications.Style;
 import crow.client.utils.GUIBlurUtil;
-import crow.client.utils.GlowUtil;
 import crow.client.utils.RenderUtils;
 import crow.client.utils.font.FontUtil;
 import net.minecraft.client.Minecraft;
@@ -164,13 +163,6 @@ public class Notification {
 
         RenderUtils.drawRoundedRectAA(x, y + 1, x + width, y + height + 1, radius, (outerAlpha << 24));
         RenderUtils.drawRoundedRectAA(x, y, x + width, y + height, radius, (innerAlpha << 24) | BG);
-
-        if (Notifications.useGlow() && HUD.enableGlow != null && HUD.enableGlow.isToggled()) {
-            float gr = HUD.glowRadius != null ? (float) HUD.glowRadius.getInput() : 10F;
-            float gi = HUD.glowIntensity != null ? (float) HUD.glowIntensity.getInput() : 0.8F;
-            int glowColor = (((int)(0x40 * anim)) << 24) | (accentColor() & 0x00FFFFFF);
-            RenderUtils.drawRoundedGlow(x, y, x + width, y + height, radius, glowColor, (int)(gr * gi));
-        }
 
         if (ICON != null) {
             Minecraft.getMinecraft().getTextureManager().bindTexture(ICON);

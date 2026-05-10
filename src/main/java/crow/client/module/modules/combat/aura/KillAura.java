@@ -13,8 +13,6 @@ import com.google.common.eventbus.Subscribe;
 
 import crow.client.event.impl.ForgeEvent;
 import crow.client.event.impl.GameLoopEvent;
-import crow.client.event.impl.LookEvent;
-import crow.client.event.impl.MoveInputEvent;
 import crow.client.event.impl.PacketEvent;
 import crow.client.event.impl.UpdateEvent;
 import crow.client.module.Module;
@@ -26,6 +24,7 @@ import crow.client.module.setting.impl.DoubleSliderSetting;
 import crow.client.module.setting.impl.SliderSetting;
 import crow.client.module.setting.impl.TickSetting;
 import crow.client.utils.CoolDown;
+import crow.client.utils.SilentAim;
 import crow.client.utils.Utils;
 import net.minecraft.client.settings.KeyBinding;
 import net.minecraft.entity.EntityLivingBase;
@@ -46,8 +45,6 @@ public class KillAura extends Module {
     private SliderSetting attackTickDelay;
     private ComboSetting blockMode;
 
-    private float serverYaw, serverPitch;
-    private float prevServerYaw, prevServerPitch;
     private float targetYaw, targetPitch;
     private boolean locked;
 
@@ -61,20 +58,11 @@ public class KillAura extends Module {
     private float aimDriftYaw, aimDriftPitch;
     private int aimDriftTicks;
 
-    private float yawVelocity, pitchVelocity;
-    private int aimTick;
-
-    private enum AimMode { GLIDE, REST, BURST }
-    private AimMode aimMode = AimMode.GLIDE;
-    private int aimModeTicksRemaining;
-    private float yawWobblePhase;
-
     private int lastTargetId = -1;
     private long lastTargetSeenMs;
     private long targetAcquiredMs;
     private long reactionDelayMs;
 
-    private float lastYawApplied;
     private static final long TARGET_PERSIST_MS = 600L;
 
     public KillAura() {
@@ -98,12 +86,8 @@ public class KillAura extends Module {
     @Override
     public void onEnable() {
         if (Utils.Player.isPlayerInGame()) {
-            serverYaw = mc.thePlayer.rotationYaw;
-            serverPitch = mc.thePlayer.rotationPitch;
-            prevServerYaw = serverYaw;
-            prevServerPitch = serverPitch;
-            targetYaw = serverYaw;
-            targetPitch = serverPitch;
+            targetYaw = mc.thePlayer.rotationYaw;
+            targetPitch = mc.thePlayer.rotationPitch;
         }
         locked = true;
         leftDownTime = 0;
@@ -112,16 +96,10 @@ public class KillAura extends Module {
         leftDown = false;
         aimDriftYaw = aimDriftPitch = 0;
         aimDriftTicks = 0;
-        yawVelocity = pitchVelocity = 0;
-        aimTick = 0;
-        aimMode = AimMode.GLIDE;
-        aimModeTicksRemaining = 0;
-        yawWobblePhase = ThreadLocalRandom.current().nextFloat() * (float) Math.PI * 2.0F;
         lastTargetId = -1;
         lastTargetSeenMs = 0L;
         targetAcquiredMs = 0L;
         reactionDelayMs = 0L;
-        lastYawApplied = 0F;
     }
 
     @Override
@@ -169,7 +147,6 @@ public class KillAura extends Module {
             }
             aimDriftYaw = aimDriftPitch = 0;
             aimDriftTicks = 0;
-            yawVelocity = pitchVelocity = 0;
 
             targetYaw = mc.thePlayer.rotationYaw;
             targetPitch = mc.thePlayer.rotationPitch;
@@ -182,8 +159,6 @@ public class KillAura extends Module {
 
         target = entityTarget;
         locked = false;
-        prevServerYaw = serverYaw;
-        prevServerPitch = serverPitch;
 
         ThreadLocalRandom r = ThreadLocalRandom.current();
 
@@ -199,7 +174,7 @@ public class KillAura extends Module {
         tickAimDrift(r);
 
         float[] rot = Utils.Player.getTargetRotations(target, 0.03F + aimDriftPitch * 0.02F,
-                serverYaw, serverPitch, heightFactor);
+                SilentAim.getServerYaw(), SilentAim.getServerPitch(), heightFactor);
         targetYaw = rot[0] + aimDriftYaw;
         targetPitch = rot[1];
 
@@ -210,19 +185,25 @@ public class KillAura extends Module {
             targetPitch = MathHelper.clamp_float(targetPitch, -90.0F, 90.0F);
         }
 
-        if (smoothRotation.isToggled()) {
-            applySmoothRotation(r);
+        SilentAim.Request req = new SilentAim.Request();
+        req.yaw = targetYaw;
+        req.pitch = targetPitch;
+        req.profile = SilentAim.Profile.COMBAT;
+        req.priority = 100;
+        if (!smoothRotation.isToggled()) {
+            // Snap mode: large per-tick caps short-circuit the spring smoothing.
+            req.maxYawStepDeg = 180f;
+            req.maxPitchStepDeg = 180f;
         } else {
-            serverYaw = targetYaw;
-            serverPitch = targetPitch;
-            yawVelocity = pitchVelocity = 0;
+            req.maxYawStepDeg = (float) rotationSpeed.getInput();
+            req.maxPitchStepDeg = (float) rotationSpeed.getInput() * 0.8f;
         }
-
-        serverPitch = MathHelper.clamp_float(serverPitch, -90.0F, 90.0F);
-        syncVisualRotations();
+        req.claimant = this;
+        SilentAim.aim(req);
 
         ticksSinceAttack++;
         boolean reacted = System.currentTimeMillis() - targetAcquiredMs >= reactionDelayMs;
+        float lastYawApplied = SilentAim.getServerYaw() - SilentAim.getPrevServerYaw();
         boolean stableAim = Math.abs(lastYawApplied) < 6.0F;
         if (reacted && stableAim
                 && ticksSinceAttack >= (int) attackTickDelay.getInput()
@@ -248,35 +229,8 @@ public class KillAura extends Module {
     @Subscribe
     public void onUpdate(UpdateEvent e) {
         if (!Utils.Player.isPlayerInGame()) return;
-        if (locked) {
-            serverYaw = mc.thePlayer.rotationYaw;
-            serverPitch = mc.thePlayer.rotationPitch;
-            prevServerYaw = serverYaw;
-            prevServerPitch = serverPitch;
-            return;
-        }
-        e.setYaw(serverYaw);
-        e.setPitch(serverPitch);
-    }
-
-    @Subscribe
-    public void lookEvent(LookEvent e) {
-        if (locked || target == null) return;
-
-        if (mc.gameSettings.thirdPersonView != 0) {
-            e.setYaw(serverYaw);
-            e.setPitch(serverPitch);
-            e.setPrevYaw(prevServerYaw);
-            e.setPrevPitch(prevServerPitch);
-            syncVisualRotations();
-        }
-
-    }
-
-    @Subscribe
-    public void move(MoveInputEvent e) {
-        if (!fixMovement.isToggled() || locked) return;
-        e.setYaw(serverYaw);
+        if (locked) return;
+        SilentAim.applyToUpdate(e);
     }
 
     @Subscribe
@@ -370,98 +324,9 @@ public class KillAura extends Module {
         }
         float thrYaw = 12.5F + ThreadLocalRandom.current().nextFloat() * 2.5F;
         float thrPitch = 10.5F + ThreadLocalRandom.current().nextFloat() * 2.0F;
-        float yawDiff = Math.abs(MathHelper.wrapAngleTo180_float(targetYaw - serverYaw));
-        float pitchDiff = Math.abs(targetPitch - serverPitch);
+        float yawDiff = Math.abs(MathHelper.wrapAngleTo180_float(targetYaw - SilentAim.getServerYaw()));
+        float pitchDiff = Math.abs(targetPitch - SilentAim.getServerPitch());
         return yawDiff < thrYaw && pitchDiff < thrPitch;
-    }
-
-    private void applySmoothRotation(ThreadLocalRandom r) {
-        aimTick++;
-        float yawDelta = MathHelper.wrapAngleTo180_float(targetYaw - serverYaw);
-        float pitchDelta = targetPitch - serverPitch;
-
-        if (aimModeTicksRemaining <= 0) {
-            int roll = r.nextInt(100);
-            if (roll < 60) {
-                aimMode = AimMode.GLIDE;
-                aimModeTicksRemaining = 4 + r.nextInt(8);
-            } else if (roll < 88) {
-                aimMode = AimMode.REST;
-                aimModeTicksRemaining = 1 + r.nextInt(3);
-            } else {
-                aimMode = AimMode.BURST;
-                aimModeTicksRemaining = 1 + r.nextInt(2);
-            }
-        }
-        aimModeTicksRemaining--;
-
-        float yawFraction, pitchFraction, yawDecay, pitchDecay, tremorYawSd, tremorPitchSd;
-        switch (aimMode) {
-            case REST:
-                yawFraction   = 0.04F + r.nextFloat() * 0.06F;
-                pitchFraction = 0.03F + r.nextFloat() * 0.05F;
-                yawDecay      = 0.78F + r.nextFloat() * 0.10F;
-                pitchDecay    = 0.80F + r.nextFloat() * 0.10F;
-                tremorYawSd   = 0.10F + r.nextFloat() * 0.10F;
-                tremorPitchSd = 0.06F + r.nextFloat() * 0.06F;
-                break;
-            case BURST:
-                yawFraction   = 0.50F + r.nextFloat() * 0.40F;
-                pitchFraction = 0.40F + r.nextFloat() * 0.30F;
-                yawDecay      = 0.20F + r.nextFloat() * 0.20F;
-                pitchDecay    = 0.25F + r.nextFloat() * 0.20F;
-                tremorYawSd   = 0.30F + r.nextFloat() * 0.40F;
-                tremorPitchSd = 0.15F + r.nextFloat() * 0.20F;
-                break;
-            case GLIDE:
-            default:
-                yawFraction   = 0.18F + r.nextFloat() * 0.22F;
-                pitchFraction = 0.16F + r.nextFloat() * 0.20F;
-                yawDecay      = 0.50F + r.nextFloat() * 0.18F;
-                pitchDecay    = 0.48F + r.nextFloat() * 0.20F;
-                tremorYawSd   = 0.20F + r.nextFloat() * 0.30F;
-                tremorPitchSd = 0.10F + r.nextFloat() * 0.15F;
-                break;
-        }
-
-        float baseMax = Math.max(2.0F, (float) rotationSpeed.getInput() / 9.0F);
-        float maxTurn = baseMax * (0.45F + 0.85F * r.nextFloat());
-
-        float yawTargetVel   = yawDelta   * yawFraction;
-        float pitchTargetVel = pitchDelta * pitchFraction;
-        yawVelocity   = yawVelocity   * yawDecay   + yawTargetVel   * (1.0F - yawDecay);
-        pitchVelocity = pitchVelocity * pitchDecay + pitchTargetVel * (1.0F - pitchDecay);
-
-        yawWobblePhase += 0.05F + r.nextFloat() * 0.10F;
-        if (yawWobblePhase > Math.PI * 4.0) yawWobblePhase -= (float) (Math.PI * 4.0);
-        float wobble = (float) Math.sin(yawWobblePhase) * 0.28F;
-
-        float yawApply   = yawVelocity   + (float) (r.nextGaussian() * tremorYawSd)   + wobble;
-        float pitchApply = pitchVelocity + (float) (r.nextGaussian() * tremorPitchSd);
-
-        int dice = r.nextInt(100);
-        if (dice < 5) {
-            yawApply   = wobble * 0.4F;
-            pitchApply = (float) (r.nextGaussian() * 0.05);
-            yawVelocity   *= 0.35F;
-            pitchVelocity *= 0.35F;
-        } else if (dice < 12 && Math.abs(yawDelta) > 3.0F) {
-            float boost = 1.30F + r.nextFloat() * 0.40F;
-            yawApply   *= boost;
-            pitchApply *= 0.85F + r.nextFloat() * 0.30F;
-            yawVelocity   *= -0.20F + r.nextFloat() * 0.40F;
-            pitchVelocity *=  0.30F + r.nextFloat() * 0.30F;
-        } else if (dice >= 95) {
-            yawApply   += (float) (r.nextGaussian() * 0.85);
-            pitchApply += (float) (r.nextGaussian() * 0.45);
-        }
-
-        yawApply   = MathHelper.clamp_float(yawApply,   -maxTurn,        maxTurn);
-        pitchApply = MathHelper.clamp_float(pitchApply, -maxTurn * 0.55F, maxTurn * 0.55F);
-
-        serverYaw   += yawApply;
-        serverPitch += pitchApply;
-        lastYawApplied = yawApply;
     }
 
     private void tickAimDrift(ThreadLocalRandom r) {
@@ -474,16 +339,6 @@ public class KillAura extends Module {
         aimDriftPitch += (r.nextFloat() - 0.5F) * 0.22F;
         aimDriftYaw = MathHelper.clamp_float(aimDriftYaw, -1.1F, 1.1F);
         aimDriftPitch = MathHelper.clamp_float(aimDriftPitch, -0.75F, 0.75F);
-    }
-
-    private void syncVisualRotations() {
-        if (mc.thePlayer == null) {
-            return;
-        }
-        mc.thePlayer.prevRotationYawHead = mc.thePlayer.rotationYawHead;
-        mc.thePlayer.rotationYawHead = serverYaw;
-        mc.thePlayer.prevRenderYawOffset = mc.thePlayer.renderYawOffset;
-        mc.thePlayer.renderYawOffset += MathHelper.wrapAngleTo180_float(serverYaw - mc.thePlayer.renderYawOffset) * 0.45F;
     }
 
     @Override

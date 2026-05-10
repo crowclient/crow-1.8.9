@@ -1,10 +1,12 @@
 package crow.client.module.modules.client;
 
+import com.google.gson.JsonObject;
 import crow.client.main.Crow;
 import crow.client.module.Module;
 import crow.client.module.modules.themes.ThemeModule;
 import crow.client.module.setting.impl.ComboSetting;
 import crow.client.module.setting.impl.TickSetting;
+import crow.client.render.aa.AAConfig;
 import crow.client.utils.ColorM;
 import crow.client.utils.RenderUtils;
 import crow.client.utils.Utils;
@@ -17,9 +19,8 @@ public class GuiModule extends Module {
 
     private static ComboSetting<CompactPalette> compactPalette;
     private static TickSetting notifications, toggleSounds, customMainMenu;
+    public static ComboSetting<AAConfig.Mode> aaMode;
 
-    public static int guiScale;
-    private static boolean scaleOverridden;
     private static boolean suppressScreenClose;
 
     public GuiModule() {
@@ -30,6 +31,7 @@ public class GuiModule extends Module {
         this.registerSetting(customMainMenu = new TickSetting("Custom Main Menu", true));
         this.registerSetting(notifications = new TickSetting("Notifications", true));
         this.registerSetting(toggleSounds = new TickSetting("Toggle Sounds", false));
+        this.registerSetting(aaMode = new ComboSetting<>("AA Mode", AAConfig.Mode.OFF));
     }
 
     @Override
@@ -45,13 +47,25 @@ public class GuiModule extends Module {
             return;
         }
 
-        applyGuiScale();
         mc.displayGuiScreen(Crow.compactGui);
     }
 
     @Override
+    public JsonObject getConfigAsJson() {
+        // Never persist this module as enabled. enable() in Module.java sets
+        // `this.enabled = true` *after* onEnable() returns, which means a
+        // self-disable() inside onEnable() (the "player not in game" branch)
+        // is a no-op — the module ends up flagged as enabled without the GUI
+        // actually opening. On the next launch the config would restore that
+        // ghost-enabled state, forcing the user to press the bind twice to
+        // see the click GUI. Always serialize as disabled instead.
+        JsonObject data = super.getConfigAsJson();
+        data.addProperty("enabled", false);
+        return data;
+    }
+
+    @Override
     public void onDisable() {
-        restoreGuiScale();
         if (!suppressScreenClose && ((mc.currentScreen == Crow.clickGui) || (mc.currentScreen == Crow.kvCompactGui) || (mc.currentScreen == Crow.compactGui))) {
             mc.displayGuiScreen(null);
         }
@@ -228,32 +242,12 @@ public class GuiModule extends Module {
                 ((GuiModule) gui).registered = false;
             }
             ((GuiModule) gui).enabled = false;
-            restoreGuiScale();
             suppressScreenClose = false;
-        } else {
-            restoreGuiScale();
         }
     }
 
     public static CompactPalette getCompactPalette() {
         return CompactPalette.Midnight;
-    }
-
-    private static void applyGuiScale() {
-        guiScale = mc.gameSettings.guiScale;
-        int targetScale = 3;
-        int desiredScale = (guiScale == 0 || guiScale > targetScale) ? targetScale : guiScale;
-        scaleOverridden = desiredScale != guiScale;
-        if (scaleOverridden) {
-            mc.gameSettings.guiScale = desiredScale;
-        }
-    }
-
-    private static void restoreGuiScale() {
-        if (scaleOverridden) {
-            mc.gameSettings.guiScale = guiScale;
-            scaleOverridden = false;
-        }
     }
 
     public static int getThemeColor(int delay) {

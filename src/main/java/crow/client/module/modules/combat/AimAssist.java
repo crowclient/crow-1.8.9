@@ -292,38 +292,42 @@ public class AimAssist extends Module {
         yawGain   *= rampMultiplier;
         pitchGain *= rampMultiplier;
 
+        // Settle factor: 0 when far from target (>5°), 1 when locked on (<1°).
+        // All high-frequency noise is gated by this so a locked-on target
+        // doesn't shake — noise only happens during the approach.
+        float settle = MathHelper.clamp_float((distAng - 1.0F) / 4.0F, 0.0F, 1.0F);
+
         if (overshootRecoveryTicks > 0) {
             overshootRecoveryTicks--;
-
             yawGain *= 0.55F;
             pitchGain *= 0.55F;
-        } else if (distAng < 1.5F && distAng > 0.15F && r.nextFloat() < 0.12F) {
-            float overshootAmt = 1.06F + r.nextFloat() * 0.08F;
-            yawDelta *= overshootAmt;
-            overshootRecoveryTicks = 1 + r.nextInt(2);
         }
 
         float yawStep = yawDelta * yawGain;
         float pitchStep = pitchDelta * pitchGain;
 
         float randAmount = (float) randomization.getInput();
-        if (randAmount > 0) {
-            float yawNoise = (r.nextFloat() - 0.5F) * randAmount * 0.12F;
-            float pitchNoise = (r.nextFloat() - 0.5F) * randAmount * 0.08F;
+        if (randAmount > 0 && settle > 0F) {
+            float yawNoise = (r.nextFloat() - 0.5F) * randAmount * 0.04F * settle;
+            float pitchNoise = (r.nextFloat() - 0.5F) * randAmount * 0.03F * settle;
             yawStep += yawNoise;
             pitchStep += pitchNoise;
         }
 
-        yawStep *= 0.96F + 0.08F * r.nextFloat();
-        pitchStep *= 0.96F + 0.08F * r.nextFloat();
+        // Tiny step-magnitude jitter, only while still approaching.
+        if (settle > 0F) {
+            float wobble = 1.0F - 0.04F * settle + 0.08F * settle * r.nextFloat();
+            yawStep *= wobble;
+            pitchStep *= wobble;
+        }
 
         long nowMs = System.currentTimeMillis();
         long sinceAttack = nowMs - lastAttackMs;
         if (lastAttackMs > 0L && sinceAttack >= 0L && sinceAttack < 280L) {
             float decay = 1.0F - (sinceAttack / 280.0F);
             float driftEase = decay * decay;
-            yawStep   += postAttackYawOffset   * driftEase * 0.18F;
-            pitchStep += postAttackPitchOffset * driftEase * 0.18F;
+            yawStep   += postAttackYawOffset   * driftEase * 0.06F;
+            pitchStep += postAttackPitchOffset * driftEase * 0.06F;
         }
 
         lerpYaw += yawStep;
@@ -349,7 +353,6 @@ public class AimAssist extends Module {
         float yawSpeedAbs = Math.abs(lastFrameYawVel);
 
         float bodyBlend = 0.42F - Math.min(0.24F, yawSpeedAbs * 0.04F);
-        bodyBlend += (r.nextFloat() - 0.5F) * 0.06F;
         mc.thePlayer.renderYawOffset += MathHelper.wrapAngleTo180_float(mc.thePlayer.rotationYaw - mc.thePlayer.renderYawOffset) * bodyBlend;
 
         if (aimPitch.isToggled()) {
@@ -392,14 +395,14 @@ public class AimAssist extends Module {
 
     private void tickAimDrift(ThreadLocalRandom r) {
         aimDriftTicks++;
-        if (aimDriftTicks < 2 + r.nextInt(4)) {
+        if (aimDriftTicks < 4 + r.nextInt(6)) {
             return;
         }
         aimDriftTicks = 0;
-        aimDriftYaw += (r.nextFloat() - 0.5F) * 0.4F;
-        aimDriftPitch += (r.nextFloat() - 0.5F) * 0.25F;
-        aimDriftYaw = MathHelper.clamp_float(aimDriftYaw, -1.15F, 1.15F);
-        aimDriftPitch = MathHelper.clamp_float(aimDriftPitch, -0.8F, 0.8F);
+        aimDriftYaw += (r.nextFloat() - 0.5F) * 0.15F;
+        aimDriftPitch += (r.nextFloat() - 0.5F) * 0.10F;
+        aimDriftYaw = MathHelper.clamp_float(aimDriftYaw, -0.4F, 0.4F);
+        aimDriftPitch = MathHelper.clamp_float(aimDriftPitch, -0.3F, 0.3F);
     }
 
     public static void addFriend(Entity entityPlayer) { friends.add(entityPlayer); }
