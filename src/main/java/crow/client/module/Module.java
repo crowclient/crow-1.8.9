@@ -92,9 +92,9 @@ public class Module {
         return getDescription();
     }
 
-    private void playToggleSound() {
+    private void playToggleSound(boolean on) {
         if (crow.client.module.modules.client.GuiModule.toggleSounds()) {
-            crow.client.utils.SoundUtils.playSound("click");
+            crow.client.utils.SoundUtils.playSound(on ? "ToggleOn" : "ToggleOff");
         }
     }
 
@@ -165,7 +165,7 @@ public class Module {
                 Crow.eventBus.register(this);
                 registered = true;
             }
-            playToggleSound();
+            playToggleSound(true);
             NotificationRenderer.moduleStateChanged(this);
         } catch (Throwable throwable) {
             this.enabled = false;
@@ -188,7 +188,7 @@ public class Module {
             }
             this.onDisable();
             this.enabled = false;
-            playToggleSound();
+            playToggleSound(false);
             NotificationRenderer.moduleStateChanged(this);
         } catch (Throwable throwable) {
             this.enabled = false;

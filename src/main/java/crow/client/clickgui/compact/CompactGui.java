@@ -237,21 +237,6 @@ public class CompactGui extends GuiScreen {
     }
 
     @Override
-    public void setWorldAndResolution(net.minecraft.client.Minecraft mcIn, int scaledW, int scaledH) {
-        // Render the GUI in display-pixel coordinates so it looks the same
-        // physical size at every guiScale setting. width/height become a
-        // "virtual" surface sized displayWidth/userScale × displayHeight/userScale
-        // so the user's Click GUI Scale slider scales the GUI up/down too.
-        // Mouse coords from super.handleMouseInput land in this same virtual
-        // space (Mouse.getEventX() * this.width / displayWidth) — no extra
-        // conversion needed in click handlers.
-        float s = GuiModule.getClickGuiScale();
-        int vw = Math.max(1, Math.round(mcIn.displayWidth / s));
-        int vh = Math.max(1, Math.round(mcIn.displayHeight / s));
-        super.setWorldAndResolution(mcIn, vw, vh);
-    }
-
-    @Override
     public void initGui() {
         super.initGui();
         openTime = System.currentTimeMillis();
@@ -306,68 +291,25 @@ public class CompactGui extends GuiScreen {
 
         loadOrUnloadBlurShader();
 
-        float s = GuiModule.getClickGuiScale();
-
-        // If the user moved the Click GUI Scale slider since the last frame,
-        // the virtual surface size changes. Update width/height and recompute
-        // the container layout in place (no animation/searchField reset).
-        int desiredVW = Math.max(1, Math.round(mc.displayWidth / s));
-        int desiredVH = Math.max(1, Math.round(mc.displayHeight / s));
-        if (this.width != desiredVW || this.height != desiredVH) {
-            this.width = desiredVW;
-            this.height = desiredVH;
-            recomputeLayout();
-        }
-
-        // Cancel Minecraft's GUI-scale projection AND apply the user's scale.
-        // After this: 1 virtual coord unit renders as `s` display pixels, so
-        // the GUI is the same physical size at every guiScale and grows/shrinks
-        // with the slider.
-        int sf = Math.max(1, new ScaledResolution(mc).getScaleFactor());
-        GL11.glPushMatrix();
-        GL11.glScalef(s / sf, s / sf, 1.0F);
+        crow.client.utils.MSAAFramebuffer.begin();
         try {
-            crow.client.utils.MSAAFramebuffer.begin();
-            try {
-                drawScreenMSAA(mouseX, mouseY, partialTicks);
-            } finally {
-                crow.client.utils.MSAAFramebuffer.end();
-            }
+            drawScreenMSAA(mouseX, mouseY, partialTicks);
         } finally {
-            GL11.glPopMatrix();
+            crow.client.utils.MSAAFramebuffer.end();
         }
-    }
-
-    /**
-     * Converts virtual-coord scissor args to display pixels, accounting for
-     * the user's Click GUI Scale.
-     */
-    private void glScissorDp(int x, int y, int w, int h) {
-        float s = GuiModule.getClickGuiScale();
-        int px = Math.round(x * s);
-        int py = Math.round(y * s);
-        int pw = Math.round(w * s);
-        int ph = Math.round(h * s);
-        GL11.glScissor(px, mc.displayHeight - (py + ph), pw, ph);
     }
 
     private void recomputeLayout() {
-        // Margins + unit clamps are tuned for display-pixel coordinates
-        // (post-"true size" rendering). Before that change these were in
-        // guiScale-scaled units, so the old MIN_UNIT=125 / MAX_UNIT=213
-        // produced a 1100–1300 actual-pixel container at typical guiScale=3.
-        // The values below aim for the same physical size band without
-        // depending on the player's guiScale.
-        int availW = Math.max(0, this.width  - 120);
-        int availH = Math.max(0, this.height - 90);
+        int availW = Math.max(0, this.width  - 80);
+        int availH = Math.max(0, this.height - 60);
 
         int unitFromW = availW / 3;
         int unitFromH = availH / 2;
         int maxUnitFit = Math.min(unitFromW, unitFromH);
 
-        int unit = (int) (maxUnitFit * 0.62F);
-        final int MIN_UNIT = 240;
-        final int MAX_UNIT = 480;
+        int unit = (int) (maxUnitFit * 0.575F);
+        final int MIN_UNIT = 125;
+        final int MAX_UNIT = 213;
         unit = Math.max(MIN_UNIT, Math.min(MAX_UNIT, unit));
 
         if (maxUnitFit > 0 && unit > maxUnitFit) {
@@ -643,7 +585,7 @@ public class CompactGui extends GuiScreen {
         contentScissorW = containerW - SIDEBAR_WIDTH - 16;
         contentScissorH = contentH + 8;
 
-        glScissorDp(contentScissorX, contentScissorY, contentScissorW, contentScissorH);
+        RenderUtils.glScissor(contentScissorX, contentScissorY, contentScissorW, contentScissorH);
         GL11.glEnable(GL11.GL_SCISSOR_TEST);
 
         if (customConfigView) {
@@ -669,7 +611,7 @@ public class CompactGui extends GuiScreen {
         GL11.glDisable(GL11.GL_SCISSOR_TEST);
 
         if (!customConfigView && !customThemeView && expandedCard != null && !expandedCard.usesDetachedSettingsPanel()) {
-            glScissorDp(contentScissorX, contentScissorY, contentScissorW, contentScissorH);
+            RenderUtils.glScissor(contentScissorX, contentScissorY, contentScissorW, contentScissorH);
             GL11.glEnable(GL11.GL_SCISSOR_TEST);
             expandedCard.drawExpandedSettings(mouseX, mouseY, palette);
             GL11.glDisable(GL11.GL_SCISSOR_TEST);
@@ -709,7 +651,7 @@ public class CompactGui extends GuiScreen {
         detachedScissorW = contentW;
         detachedScissorH = contentH;
 
-        glScissorDp(detachedScissorX, detachedScissorY, detachedScissorW, detachedScissorH);
+        RenderUtils.glScissor(detachedScissorX, detachedScissorY, detachedScissorW, detachedScissorH);
         GL11.glEnable(GL11.GL_SCISSOR_TEST);
         expandedCard.drawDetachedSettings(mouseX, mouseY, palette, contentX, contentY, contentW, (int) detachedScrollAnim.get());
         GL11.glDisable(GL11.GL_SCISSOR_TEST);

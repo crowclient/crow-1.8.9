@@ -5,7 +5,6 @@ import crow.client.main.Crow;
 import crow.client.module.Module;
 import crow.client.module.modules.themes.ThemeModule;
 import crow.client.module.setting.impl.ComboSetting;
-import crow.client.module.setting.impl.SliderSetting;
 import crow.client.module.setting.impl.TickSetting;
 import crow.client.utils.ColorM;
 import crow.client.utils.RenderUtils;
@@ -20,7 +19,6 @@ public class GuiModule extends Module {
     private static ComboSetting<CompactPalette> compactPalette;
     private static TickSetting notifications, toggleSounds, customMainMenu;
     public static TickSetting blur;
-    public static SliderSetting clickGuiScale;
 
     private static boolean suppressScreenClose;
 
@@ -33,22 +31,10 @@ public class GuiModule extends Module {
         this.registerSetting(notifications = new TickSetting("Notifications", true));
         this.registerSetting(toggleSounds = new TickSetting("Toggle Sounds", false));
         this.registerSetting(blur = new TickSetting("Background Blur", true));
-        this.registerSetting(clickGuiScale = new SliderSetting("Click GUI Scale", 1.0D, 0.5D, 2.0D, 0.05D));
     }
 
     public static boolean isBlurEnabled() {
         return blur == null || blur.isToggled();
-    }
-
-    /**
-     * User-facing scale for the click GUI. Multiplied into the
-     * display-pixel render transform in {@code CompactGui.drawScreen}.
-     * 1.0 = native (default), 0.5 = half size, 2.0 = double size.
-     */
-    public static float getClickGuiScale() {
-        if (clickGuiScale == null) return 1.0F;
-        float s = (float) clickGuiScale.getInput();
-        return s <= 0.0F ? 1.0F : s;
     }
 
     @Override
