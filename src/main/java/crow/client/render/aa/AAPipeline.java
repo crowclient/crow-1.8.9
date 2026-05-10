@@ -67,13 +67,6 @@ public final class AAPipeline {
         depth++;
         if (depth > 1) return;
 
-        // Hot-reload the mode from the user-facing setting.
-        try {
-            if (crow.client.module.modules.client.GuiModule.aaMode != null) {
-                AAConfig.current = crow.client.module.modules.client.GuiModule.aaMode.getMode();
-            }
-        } catch (Throwable ignored) {}
-
         AAConfig.Mode mode = AAConfig.current;
         if (mode.ssaa <= 1) {
             active = false;

@@ -239,14 +239,16 @@ public class CompactGui extends GuiScreen {
     @Override
     public void setWorldAndResolution(net.minecraft.client.Minecraft mcIn, int scaledW, int scaledH) {
         // Render the GUI in display-pixel coordinates so it looks the same
-        // physical size at every guiScale setting. Passing displayWidth/Height
-        // as the GuiScreen's width/height has two effects:
-        //  1. Layout math in initGui (containerW/H, etc.) is in display px.
-        //  2. super.handleMouseInput's mouse-coord calculation
-        //     (Mouse.getEventX() * this.width / displayWidth) reduces to just
-        //     Mouse.getEventX(), so mouse handlers receive display px too —
-        //     same coordinate space as the layout. No conversion needed.
-        super.setWorldAndResolution(mcIn, mcIn.displayWidth, mcIn.displayHeight);
+        // physical size at every guiScale setting. width/height become a
+        // "virtual" surface sized displayWidth/userScale × displayHeight/userScale
+        // so the user's Click GUI Scale slider scales the GUI up/down too.
+        // Mouse coords from super.handleMouseInput land in this same virtual
+        // space (Mouse.getEventX() * this.width / displayWidth) — no extra
+        // conversion needed in click handlers.
+        float s = GuiModule.getClickGuiScale();
+        int vw = Math.max(1, Math.round(mcIn.displayWidth / s));
+        int vh = Math.max(1, Math.round(mcIn.displayHeight / s));
+        super.setWorldAndResolution(mcIn, vw, vh);
     }
 
     @Override
@@ -258,16 +260,114 @@ public class CompactGui extends GuiScreen {
 
         contentSwapStartTime = openTime;
 
-        int availW = Math.max(0, this.width  - 80);
-        int availH = Math.max(0, this.height - 60);
+        recomputeLayout();
+        searchField = new GuiTextField(0, mc.fontRendererObj, 0, 0, 110, 16);
+        searchField.setCanLoseFocus(true);
+        searchField.setMaxStringLength(40);
+        searchField.setEnableBackgroundDrawing(false);
+        searchField.setFocused(false);
+
+        loadOrUnloadBlurShader();
+    }
+
+    /**
+     * Reflects the {@code Background Blur} Gui-module setting onto Minecraft's
+     * post-processing shader. Called from {@link #initGui()} (open) and
+     * {@link #drawScreen} (every frame, so live toggles take effect).
+     */
+    private void loadOrUnloadBlurShader() {
+        if (mc == null || mc.entityRenderer == null
+                || mc.theWorld == null || mc.thePlayer == null) {
+            return;
+        }
+        boolean wantBlur = GuiModule.isBlurEnabled();
+        boolean active = mc.entityRenderer.isShaderActive();
+        if (wantBlur && !active) {
+            InputStream stream = null;
+            try {
+                stream = mc.getResourceManager().getResource(BLUR_SHADER).getInputStream();
+                if (stream != null) mc.entityRenderer.loadShader(BLUR_SHADER);
+            } catch (Exception ignored) {
+            } finally {
+                if (stream != null) try { stream.close(); } catch (Exception ignored) {}
+            }
+        } else if (!wantBlur && active) {
+            try { mc.entityRenderer.stopUseShader(); } catch (Exception ignored) {}
+        }
+    }
+
+    @Override
+    public void drawScreen(int mouseX, int mouseY, float partialTicks) {
+        if (!Display.isActive()) {
+            persistLayoutState(true);
+            mc.displayGuiScreen(null);
+            return;
+        }
+
+        loadOrUnloadBlurShader();
+
+        float s = GuiModule.getClickGuiScale();
+
+        // If the user moved the Click GUI Scale slider since the last frame,
+        // the virtual surface size changes. Update width/height and recompute
+        // the container layout in place (no animation/searchField reset).
+        int desiredVW = Math.max(1, Math.round(mc.displayWidth / s));
+        int desiredVH = Math.max(1, Math.round(mc.displayHeight / s));
+        if (this.width != desiredVW || this.height != desiredVH) {
+            this.width = desiredVW;
+            this.height = desiredVH;
+            recomputeLayout();
+        }
+
+        // Cancel Minecraft's GUI-scale projection AND apply the user's scale.
+        // After this: 1 virtual coord unit renders as `s` display pixels, so
+        // the GUI is the same physical size at every guiScale and grows/shrinks
+        // with the slider.
+        int sf = Math.max(1, new ScaledResolution(mc).getScaleFactor());
+        GL11.glPushMatrix();
+        GL11.glScalef(s / sf, s / sf, 1.0F);
+        try {
+            crow.client.utils.MSAAFramebuffer.begin();
+            try {
+                drawScreenMSAA(mouseX, mouseY, partialTicks);
+            } finally {
+                crow.client.utils.MSAAFramebuffer.end();
+            }
+        } finally {
+            GL11.glPopMatrix();
+        }
+    }
+
+    /**
+     * Converts virtual-coord scissor args to display pixels, accounting for
+     * the user's Click GUI Scale.
+     */
+    private void glScissorDp(int x, int y, int w, int h) {
+        float s = GuiModule.getClickGuiScale();
+        int px = Math.round(x * s);
+        int py = Math.round(y * s);
+        int pw = Math.round(w * s);
+        int ph = Math.round(h * s);
+        GL11.glScissor(px, mc.displayHeight - (py + ph), pw, ph);
+    }
+
+    private void recomputeLayout() {
+        // Margins + unit clamps are tuned for display-pixel coordinates
+        // (post-"true size" rendering). Before that change these were in
+        // guiScale-scaled units, so the old MIN_UNIT=125 / MAX_UNIT=213
+        // produced a 1100–1300 actual-pixel container at typical guiScale=3.
+        // The values below aim for the same physical size band without
+        // depending on the player's guiScale.
+        int availW = Math.max(0, this.width  - 120);
+        int availH = Math.max(0, this.height - 90);
 
         int unitFromW = availW / 3;
         int unitFromH = availH / 2;
         int maxUnitFit = Math.min(unitFromW, unitFromH);
 
-        int unit = (int) (maxUnitFit * 0.575F);
-        final int MIN_UNIT = 125;
-        final int MAX_UNIT = 213;
+        int unit = (int) (maxUnitFit * 0.62F);
+        final int MIN_UNIT = 240;
+        final int MAX_UNIT = 480;
         unit = Math.max(MIN_UNIT, Math.min(MAX_UNIT, unit));
 
         if (maxUnitFit > 0 && unit > maxUnitFit) {
@@ -281,59 +381,6 @@ public class CompactGui extends GuiScreen {
         containerX = savedContainerX == Integer.MIN_VALUE ? defaultX : savedContainerX;
         containerY = savedContainerY == Integer.MIN_VALUE ? defaultY : savedContainerY;
         clampContainerToScreen();
-        searchField = new GuiTextField(0, mc.fontRendererObj, 0, 0, 110, 16);
-        searchField.setCanLoseFocus(true);
-        searchField.setMaxStringLength(40);
-        searchField.setEnableBackgroundDrawing(false);
-        searchField.setFocused(false);
-
-        try {
-            if (mc != null && mc.entityRenderer != null
-                    && !mc.entityRenderer.isShaderActive()
-                    && mc.theWorld != null && mc.thePlayer != null) {
-                InputStream stream = null;
-                try {
-                    stream = mc.getResourceManager().getResource(BLUR_SHADER).getInputStream();
-                } catch (Exception ignored) {
-                }
-                if (stream != null) {
-                    mc.entityRenderer.loadShader(BLUR_SHADER);
-                    stream.close();
-                }
-            }
-        } catch (Exception ignored) {
-        }
-    }
-
-    @Override
-    public void drawScreen(int mouseX, int mouseY, float partialTicks) {
-        if (!Display.isActive()) {
-            persistLayoutState(true);
-            mc.displayGuiScreen(null);
-            return;
-        }
-
-        // Cancel Minecraft's GUI-scale projection so 1 unit = 1 display px.
-        // Combined with setWorldAndResolution feeding displayWidth/Height,
-        // this makes the GUI render at a fixed physical size regardless of
-        // the user's guiScale setting.
-        int sf = Math.max(1, new ScaledResolution(mc).getScaleFactor());
-        GL11.glPushMatrix();
-        GL11.glScalef(1.0F / sf, 1.0F / sf, 1.0F);
-        try {
-            crow.client.utils.MSAAFramebuffer.begin();
-            try {
-                drawScreenMSAA(mouseX, mouseY, partialTicks);
-            } finally {
-                crow.client.utils.MSAAFramebuffer.end();
-            }
-        } finally {
-            GL11.glPopMatrix();
-        }
-    }
-
-    private void glScissorDp(int x, int y, int w, int h) {
-        GL11.glScissor(x, mc.displayHeight - (y + h), w, h);
     }
 
     private void drawScreenMSAA(int mouseX, int mouseY, float partialTicks) {

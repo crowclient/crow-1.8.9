@@ -59,8 +59,8 @@ public class Clutch extends Module {
     public Clutch() {
         super("Clutch", ModuleCategory.combat);
         this.registerSetting(maxBlocks            = new SliderSetting("Max Blocks", 5.0D, 1.0D, 10.0D, 1.0D));
-        this.registerSetting(damageThreshold      = new SliderSetting("Damage Threshold", 1.5D, 0.5D, 6.0D, 0.5D));
-        this.registerSetting(rotationSpeed        = new SliderSetting("Rotation Speed", 36.0D, 4.0D, 50.0D, 0.5D));
+        this.registerSetting(damageThreshold      = new SliderSetting("Damage Threshold", 2.0D, 0.5D, 6.0D, 0.5D));
+        this.registerSetting(rotationSpeed        = new SliderSetting("Rotation Speed", 48.0D, 4.0D, 60.0D, 0.5D));
         this.registerSetting(placeDelay           = new SliderSetting("Place Delay (ticks)", 0.0D, 0.0D, 4.0D, 1.0D));
         this.registerSetting(searchRadius         = new SliderSetting("Search Radius", 4.5D, 2.0D, 5.0D, 0.5D));
         this.registerSetting(saveFromVoid         = new TickSetting("Save From Void", true));
@@ -152,16 +152,22 @@ public class Clutch extends Module {
         }
 
         float speed = (float) rotationSpeed.getInput();
-        float t = MathHelper.clamp_float((speed - 4f) / (50f - 4f), 0f, 1f);
-        float stiff = 0.30f + t * (0.95f - 0.30f);
+        float t = MathHelper.clamp_float((speed - 4f) / (60f - 4f), 0f, 1f);
+        // Stiffness ramps higher at max speed so emergency clutches converge
+        // in 1–2 ticks instead of 3+. Keep the low end gentle so casual
+        // placements still look organic.
+        float stiff = 0.34f + t * (0.96f - 0.34f);
 
         SilentAim.Request req = new SilentAim.Request();
         req.yaw = currentTarget.rotationYaw;
         req.pitch = currentTarget.rotationPitch;
         req.profile = SilentAim.Profile.COMBAT;
         req.priority = 80;
-        req.maxYawStepDeg = speed;
-        req.maxPitchStepDeg = speed * 0.85f;
+        // Allow up to 1.4× the speed setting per tick so the spring can land
+        // a full 90° wall→wall in 2 ticks rather than 3. SilentAim still
+        // applies its own anti-snap cap below for raw safety.
+        req.maxYawStepDeg = speed * 1.4f;
+        req.maxPitchStepDeg = speed * 1.2f;
         req.stiffness = stiff;
         req.fixMovement = false;
         req.disableTremor = true;
@@ -493,11 +499,13 @@ public class Clutch extends Module {
                 currentTarget.rotationYaw - SilentAim.getServerYaw()));
         float pitchDiff = Math.abs(currentTarget.rotationPitch - SilentAim.getServerPitch());
 
-        // The placement angles drift ~1–2°/tick as the player falls (eye
-        // position moves while the hit vec is fixed). A 1.5° threshold is too
-        // tight — the spring oscillates inside it without settling.
-        // 3° still raycasts inside a face at typical clutch distances.
-        return yawDiff <= 3.0F && pitchDiff <= 3.0F;
+        // Tighter threshold at higher speeds (spring converges fast → can
+        // afford accuracy), looser at low speeds so the spring doesn't
+        // oscillate inside the window without ever settling.
+        float speed = (float) rotationSpeed.getInput();
+        float speedT = MathHelper.clamp_float((speed - 4f) / (60f - 4f), 0f, 1f);
+        float threshold = 3.0F - speedT * 1.0F;   // 3° at slow → 2° at fast
+        return yawDiff <= threshold && pitchDiff <= threshold;
     }
 
     private boolean doPlace(PlaceTarget t) {

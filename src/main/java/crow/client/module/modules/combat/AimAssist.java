@@ -80,8 +80,8 @@ public class AimAssist extends Module {
         super("AimAssist", ModuleCategory.combat);
         this.registerSetting(new DescriptionSetting("Set targets in Client->Targets"));
 
-        this.registerSetting(horizontalSpeed = new SliderSetting("Horizontal Speed", 0.5D, 0.01D, 1.0D, 0.01D));
-        this.registerSetting(verticalSpeed   = new SliderSetting("Vertical Speed",   0.5D, 0.01D, 1.0D, 0.01D));
+        this.registerSetting(horizontalSpeed = new SliderSetting("Horizontal Speed", 0.35D, 0.01D, 1.0D, 0.01D));
+        this.registerSetting(verticalSpeed   = new SliderSetting("Vertical Speed",   0.35D, 0.01D, 1.0D, 0.01D));
         this.registerSetting(fov = new SliderSetting("FOV", 90.0D, 15.0D, 360.0D, 1.0D));
         this.registerSetting(distance = new SliderSetting("Distance", 4.5D, 1.0D, 8.0D, 0.1D));
         this.registerSetting(pitchOffset = new SliderSetting("Pitch offset", 0.0D, -2.0D, 2.0D, 0.05D));
@@ -226,10 +226,21 @@ public class AimAssist extends Module {
             return;
         }
 
+        // Mouse-sync the lerp to the player's actual rotation when the user
+        // moves their mouse, but ignore deltas smaller than the GCD — those
+        // are just the sub-quantum residual we deliberately preserved last
+        // tick. Without this guard the residual would be wiped every frame,
+        // turning slow sub-degree adjustments into stuttery 0° steps when
+        // strafing past a target's edge.
+        float gcd = Utils.Player.getGcd();
         float mouseDeltaYaw = MathHelper.wrapAngleTo180_float(mc.thePlayer.rotationYaw - lerpYaw);
         float mouseDeltaPitch = mc.thePlayer.rotationPitch - lerpPitch;
-        lerpYaw += mouseDeltaYaw;
-        lerpPitch += mouseDeltaPitch;
+        if (Math.abs(mouseDeltaYaw) > gcd * 0.55F) {
+            lerpYaw += mouseDeltaYaw;
+        }
+        if (Math.abs(mouseDeltaPitch) > gcd * 0.55F) {
+            lerpPitch += mouseDeltaPitch;
+        }
 
         ThreadLocalRandom r = ThreadLocalRandom.current();
         tickAimDrift(r);
@@ -268,10 +279,13 @@ public class AimAssist extends Module {
         float yawSpeed   = (float) horizontalSpeed.getInput();
         float pitchSpeed = (float) verticalSpeed.getInput();
 
-        float gainHiYaw   = 0.020F + yawSpeed   * 0.160F;
-        float gainLoYaw   = 0.008F + yawSpeed   * 0.052F;
-        float gainHiPitch = 0.020F + pitchSpeed * 0.160F;
-        float gainLoPitch = 0.008F + pitchSpeed * 0.052F;
+        // Tamer gain curves — ~25% lower at both endpoints than the previous
+        // tuning so default settings feel less aggressive and edge tracking
+        // doesn't overshoot.
+        float gainHiYaw   = 0.014F + yawSpeed   * 0.125F;
+        float gainLoYaw   = 0.005F + yawSpeed   * 0.038F;
+        float gainHiPitch = 0.014F + pitchSpeed * 0.125F;
+        float gainLoPitch = 0.005F + pitchSpeed * 0.038F;
 
         float pivot = 11.0F;
         float yawBlend   = absYaw   / (absYaw   + pivot);
@@ -305,6 +319,16 @@ public class AimAssist extends Module {
 
         float yawStep = yawDelta * yawGain;
         float pitchStep = pitchDelta * pitchGain;
+
+        // Hard per-tick cap on how far the aim can travel — scales with the
+        // user's speed slider. Prevents the visible snap when a target
+        // teleports across the screen or you strafe past close range.
+        float maxStep = 6.0F + yawSpeed * 32.0F;
+        if (yawStep > maxStep)  yawStep = maxStep;
+        if (yawStep < -maxStep) yawStep = -maxStep;
+        float maxStepP = 4.0F + pitchSpeed * 22.0F;
+        if (pitchStep > maxStepP)  pitchStep = maxStepP;
+        if (pitchStep < -maxStepP) pitchStep = -maxStepP;
 
         float randAmount = (float) randomization.getInput();
         if (randAmount > 0 && settle > 0F) {
@@ -345,7 +369,15 @@ public class AimAssist extends Module {
         mc.thePlayer.rotationYaw += patchedYaw;
         lastFrameYawVel = patchedYaw;
 
-        lerpYaw = mc.thePlayer.rotationYaw;
+        // Do NOT reset lerpYaw to player rotation here. patchGCD discards
+        // up to half a GCD of motion per tick; if we then re-sync lerp to
+        // player rotation we throw that residual away every frame, so a
+        // continuous slow desired motion (e.g. strafing past a target's
+        // edge) renders as periodic zero-steps + jumps. Keeping lerpYaw at
+        // `prev + yawStep` carries the residual forward — next tick the
+        // accumulated delta crosses the GCD boundary and produces a smooth
+        // step. The mouse-sync at the top of this method ignores deltas
+        // below half a GCD so the residual survives.
 
         mc.thePlayer.prevRotationYawHead = mc.thePlayer.rotationYawHead;
         mc.thePlayer.rotationYawHead = mc.thePlayer.rotationYaw;
@@ -358,7 +390,7 @@ public class AimAssist extends Module {
         if (aimPitch.isToggled()) {
             mc.thePlayer.rotationPitch += patchedPitch;
             mc.thePlayer.rotationPitch = MathHelper.clamp_float(mc.thePlayer.rotationPitch, -90.0F, 90.0F);
-            lerpPitch = mc.thePlayer.rotationPitch;
+            // Same residual rationale as yaw — leave lerpPitch alone.
         } else {
 
             lerpPitch = mc.thePlayer.rotationPitch;
