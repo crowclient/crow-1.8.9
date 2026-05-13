@@ -26,7 +26,7 @@ apply plugin: 'net.minecraftforge.gradle.forge'
 apply plugin: 'org.spongepowered.mixin'
 apply plugin: 'java'
 
-version = "b1.2.7"
+version = "b1.2.8"
 group = "crow"
 archivesBaseName = "Crow"
 
@@ -127,7 +127,7 @@ plugins {
 
 /* -Dfml.coreMods.load=crow.sToNkS.tweaker.FMLLoadingPlugin*/
 jar {
-    archiveName = "Crow-b1.2.7.jar"
+    archiveName = "Crow-b1.2.8.jar"
     from(configurations.embed.collect {
         it.isDirectory() ? it : zipTree(it)
     }) {

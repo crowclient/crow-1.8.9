@@ -154,7 +154,7 @@ public class CrowMainMenu extends GuiScreen implements GuiYesNoCallback {
 
         drawMenuSwitch(mouseX, mouseY, dt);
 
-        String version = EnumChatFormatting.GRAY + "Build 1.2.7";
+        String version = EnumChatFormatting.GRAY + "Build 1.2.8";
         drawSmall(version, width - getSmallWidth(version) - 12, height - 18, 0xA0FFFFFF);
 
         super.drawScreen(mouseX, mouseY, partialTicks);
