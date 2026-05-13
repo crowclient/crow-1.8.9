@@ -33,7 +33,7 @@ public class AutoPlace extends Module {
     private BlockPos lp;
 
     public AutoPlace() {
-        super("AutoPlace", ModuleCategory.player);
+        super("AutoPlace", ModuleCategory.world);
         this.registerSetting(ds = new DescriptionSetting("FD: FPS/80"));
         this.registerSetting(c = new SliderSetting("Frame delay", 8.0D, 0.0D, 30.0D, 1.0D));
         this.registerSetting(a = new TickSetting("Hold right", true));

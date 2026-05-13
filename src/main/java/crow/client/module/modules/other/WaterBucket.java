@@ -24,7 +24,7 @@ public class WaterBucket extends Module {
     private boolean handling;
 
     public WaterBucket() {
-        super("Water bucket", ModuleCategory.other);
+        super("Water bucket", ModuleCategory.world);
         this.registerSetting(moduleDesc = new DescriptionSetting("Auto MLG water. Disabled in the Nether."));
         this.registerSetting(distance = new SliderSetting("Fall Distance", 3, 1, 10, 0.1));
     }

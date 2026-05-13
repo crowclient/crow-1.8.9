@@ -35,7 +35,7 @@ public class Blink extends Module {
     private int ticksActive;
 
     public Blink() {
-        super("Blink", ModuleCategory.player);
+        super("Blink", ModuleCategory.movement);
         this.withDescription("Queues outgoing packets to simulate lag. Server sees you frozen in place.");
         this.registerSetting(pulse = new TickSetting("Pulse", false));
         this.registerSetting(pulseDelay = new SliderSetting("Pulse delay (ms)", 500, 100, 2000, 50));

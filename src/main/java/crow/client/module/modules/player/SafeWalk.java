@@ -13,7 +13,7 @@ public class SafeWalk extends Module {
     private boolean wasShifting;
 
     public SafeWalk() {
-        super("SafeWalk", ModuleCategory.player);
+        super("SafeWalk", ModuleCategory.movement);
         this.registerSetting(shiftAtEdge = new TickSetting("Shift at edge", false));
     }
 

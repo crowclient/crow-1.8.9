@@ -13,6 +13,7 @@ import crow.client.clickgui.crow.components.ModuleComponent;
 import crow.client.main.Crow;
 import crow.client.module.setting.Setting;
 import crow.client.module.setting.impl.ComboSetting;
+import crow.client.module.setting.impl.TickSetting;
 import crow.client.notifications.NotificationRenderer;
 import crow.client.utils.Utils;
 import net.minecraft.client.Minecraft;
@@ -33,6 +34,12 @@ public class Module {
 
     protected ModuleComponent component;
 
+    /** User-toggleable arraylist visibility. ANDed with {@link #showInHud}
+     *  in {@link #showInHud()} so subclass-declared "permanently hidden"
+     *  modules (HUD, categories, themes) stay hidden no matter what the
+     *  user does to this toggle. */
+    private TickSetting hideFromArrayList;
+
     protected static Minecraft mc;
     private boolean isToggled;
 
@@ -49,6 +56,12 @@ public class Module {
         this.moduleCategory = moduleCategory;
         this.settings = new ArrayList<>();
         mc = Minecraft.getMinecraft();
+
+        // Registered before any subclass settings, so "Hide from arraylist"
+        // appears at the top of every module's settings panel — easy to
+        // find and consistent across modules.
+        this.hideFromArrayList = new TickSetting("Hide from arraylist", false);
+        registerSetting(hideFromArrayList);
     }
 
     protected <E extends Module> E withKeycode(int i) {
@@ -151,7 +164,11 @@ public class Module {
     }
 
     public boolean showInHud() {
-        return showInHud;
+        // The "Hide from arraylist" toggle hides the module on top of the
+        // legacy showInHud flag; it can only hide, not force-show modules
+        // that were declared permanently hidden by their subclass.
+        boolean userWantsShown = hideFromArrayList == null || !hideFromArrayList.isToggled();
+        return showInHud && userWantsShown;
     }
 
     public void enable() {

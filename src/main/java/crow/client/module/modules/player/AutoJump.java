@@ -12,7 +12,7 @@ public class AutoJump extends Module {
     private boolean c;
 
     public AutoJump() {
-        super("AutoJump", ModuleCategory.player);
+        super("AutoJump", ModuleCategory.movement);
         this.registerSetting(b = new TickSetting("Cancel when shifting", true));
     }
 

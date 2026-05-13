@@ -45,6 +45,39 @@ public class CompactGui extends GuiScreen {
     private static final int CARD_HEIGHT = 46;
     private static final int CARD_GAP = 6;
 
+    /**
+     * Uniform scale applied to the entire GUI on top of the display-pixel
+     * render. The internal layout (SIDEBAR_WIDTH, fonts, paddings, card
+     * heights) is fixed at values designed for a ~720×480 surface; this
+     * multiplier blows the whole surface up so EVERYTHING — outer container,
+     * sidebar, text, toggle pills, spacing — scales proportionally. Picked
+     * at 1.5 to land the container at ~1080×720 actual pixels on a 1080p
+     * monitor, which is what we want as the on-screen reference size.
+     */
+    /**
+     * Display-pixels-per-virtual-unit. Was a fixed 2.0F, which baked a
+     * 1080×720 display-pixel container size at all resolutions — meaning the
+     * GUI was the right proportion of a 1080p monitor but ~28% screen-width
+     * on 4K and overflowed on ≤768p panels.
+     *
+     * <p>Now adaptive: targeted so the container occupies roughly 65% of the
+     * screen vertically regardless of resolution. Container height in virtual
+     * units is {@code unit * 2 ≈ 360}, so {@code scale = displayH / 554}
+     * yields container_height ≈ 0.65 × displayH. Clamped to a sane range so
+     * sub-720p screens still get a usable size and 8K+ doesn't blow up text
+     * past readability.
+     */
+    private static float guiScale() {
+        net.minecraft.client.Minecraft mcRef = net.minecraft.client.Minecraft.getMinecraft();
+        if (mcRef == null) return 2.0F;
+        int dh = mcRef.displayHeight;
+        if (dh <= 0) return 2.0F;
+        float s = dh / 554.0F;
+        if (s < 1.30F) s = 1.30F;
+        if (s > 5.00F) s = 5.00F;
+        return s;
+    }
+
     private static final long CARD_STAGGER_MS = 35L;
 
     private static final long CARD_REVEAL_MS = 220L;
@@ -104,6 +137,19 @@ public class CompactGui extends GuiScreen {
     private boolean dragging;
     private int dragOffsetX;
     private int dragOffsetY;
+    /**
+     * Raw mouse display-pixel position + container virtual position captured
+     * at drag start. Used to compute the new container position each frame
+     * directly from {@code Mouse.getX/getY}, instead of going through the
+     * already-rounded virtual {@code mouseX} value passed to drawScreen.
+     * That double-rounding (mouseX is already truncated by Mojang's
+     * {@code Mouse.getX() * width / displayWidth} int-division, then we
+     * subtract another rounded value) was inflating drag granularity at
+     * non-1080p scales, where 1 virtual unit > 2 display pixels — the user
+     * saw the GUI lag-jump by 3+ pixels behind the cursor.
+     */
+    private int dragStartMouseDpX, dragStartMouseDpY;
+    private int dragStartContainerX, dragStartContainerY;
 
     private boolean scrollbarVisible;
     private int scrollbarThumbX, scrollbarThumbY, scrollbarThumbW, scrollbarThumbH;
@@ -237,6 +283,21 @@ public class CompactGui extends GuiScreen {
     }
 
     @Override
+    public void setWorldAndResolution(net.minecraft.client.Minecraft mcIn, int scaledW, int scaledH) {
+        // Render the GUI in display-pixel coordinates DIVIDED by GUI_SCALE.
+        // The GUI's layout math runs in this smaller "virtual" surface; the
+        // glScalef in drawScreen multiplies everything back up by GUI_SCALE,
+        // so the container AND every fixed-size internal element (sidebar,
+        // text, paddings) scales as one piece. super.handleMouseInput's
+        // mouse-coord math lands in the same virtual space — click handlers
+        // remain correct without additional conversion.
+        float scale = guiScale();
+        int vw = Math.max(1, Math.round(mcIn.displayWidth  / scale));
+        int vh = Math.max(1, Math.round(mcIn.displayHeight / scale));
+        super.setWorldAndResolution(mcIn, vw, vh);
+    }
+
+    @Override
     public void initGui() {
         super.initGui();
         openTime = System.currentTimeMillis();
@@ -244,6 +305,14 @@ public class CompactGui extends GuiScreen {
         contentSwapAnim.snap(Math.max(contentSwapAnim.get(), 0.75F));
 
         contentSwapStartTime = openTime;
+
+        // Always open the GUI scrolled to the top of the current category
+        // rather than wherever the user left it the previous time it was
+        // closed — much less disorienting on re-open.
+        scrollTarget = 0;
+        smoothScrollAnim.snap(0.0F);
+        detachedScrollTarget = 0;
+        detachedScrollAnim.snap(0.0F);
 
         recomputeLayout();
         searchField = new GuiTextField(0, mc.fontRendererObj, 0, 0, 110, 16);
@@ -291,25 +360,88 @@ public class CompactGui extends GuiScreen {
 
         loadOrUnloadBlurShader();
 
-        crow.client.utils.MSAAFramebuffer.begin();
+        // Cancel Minecraft's guiScale-scaled projection so 1 unit = 1 display
+        // pixel regardless of guiScale, THEN multiply by GUI_SCALE. The result
+        // is that one virtual coord unit (which is what every internal layout
+        // constant operates in) renders as GUI_SCALE display pixels, scaling
+        // every element of the GUI together.
+        int sf = Math.max(1, new ScaledResolution(mc).getScaleFactor());
+        GL11.glPushMatrix();
+        float scale = guiScale();
+        GL11.glScalef(scale / sf, scale / sf, 1.0F);
         try {
-            drawScreenMSAA(mouseX, mouseY, partialTicks);
+            crow.client.utils.MSAAFramebuffer.begin();
+            try {
+                drawScreenMSAA(mouseX, mouseY, partialTicks);
+            } finally {
+                crow.client.utils.MSAAFramebuffer.end();
+            }
         } finally {
-            crow.client.utils.MSAAFramebuffer.end();
+            GL11.glPopMatrix();
         }
     }
 
+    /**
+     * GL_SCISSOR_TEST takes window pixels and the OpenGL Y-up convention.
+     * RenderUtils.glScissor scales its args by guiScaleFactor (correct for
+     * the rest of the codebase). CompactGui works in a virtual surface that
+     * gets multiplied by GUI_SCALE before reaching the screen, so we apply
+     * that factor here and then y-flip into the OpenGL window origin.
+     */
+    private void glScissorDp(int x, int y, int w, int h) {
+        float scale = guiScale();
+        int px = Math.round(x * scale);
+        int py = Math.round(y * scale);
+        int pw = Math.round(w * scale);
+        int ph = Math.round(h * scale);
+        GL11.glScissor(px, mc.displayHeight - (py + ph), pw, ph);
+    }
+
+    /**
+     * Intersect a card's animated rect with the current content scissor and
+     * push it to GL. Used by CompactModuleCard.drawExpandedSettings so that
+     * the settings region reveals from the bottom of the header as the card
+     * grows, with overflow into the next card cleanly clipped.
+     */
+    public void applyCardClipScissor(int cardX, int cardY, int cardW, int cardH) {
+        int x1 = Math.max(cardX, contentScissorX);
+        int y1 = Math.max(cardY, contentScissorY);
+        int x2 = Math.min(cardX + cardW, contentScissorX + contentScissorW);
+        int y2 = Math.min(cardY + cardH, contentScissorY + contentScissorH);
+        int w = Math.max(0, x2 - x1);
+        int h = Math.max(0, y2 - y1);
+        glScissorDp(x1, y1, w, h);
+    }
+
+    /** Restore the broad content scissor after a card-local clip. */
+    public void restoreContentScissor() {
+        glScissorDp(contentScissorX, contentScissorY, contentScissorW, contentScissorH);
+    }
+
     private void recomputeLayout() {
-        int availW = Math.max(0, this.width  - 80);
-        int availH = Math.max(0, this.height - 60);
+        // this.width/this.height are display pixels. The internal CompactGui
+        // layout (SIDEBAR_WIDTH=108, CARD_HEIGHT=46, header padding, font
+        // sizes 14/19/24) was sized for a container around 700×470 px. Growing
+        // the container beyond that leaves the sidebar/cards/text looking tiny
+        // inside an oversized panel — visible as the "wide but everything is
+        // small" look. Clamping MAX_UNIT to 240 caps the container near its
+        // visual sweet spot regardless of screen size: it's the same physical
+        // size at every resolution and the internal proportions match.
+        int availW = Math.max(0, this.width  - 40);
+        int availH = Math.max(0, this.height - 30);
 
         int unitFromW = availW / 3;
         int unitFromH = availH / 2;
         int maxUnitFit = Math.min(unitFromW, unitFromH);
 
-        int unit = (int) (maxUnitFit * 0.575F);
-        final int MIN_UNIT = 125;
-        final int MAX_UNIT = 213;
+        // Container is intentionally undersized in virtual coords so that
+        // after GUI_SCALE multiplication it ends up at ~1.5× the default
+        // 720×480 reference (i.e. ~1080×720 actual), while internal elements
+        // still get the full 2.0× of GUI_SCALE. Net effect: inside of the
+        // GUI looks bigger relative to the container.
+        int unit = maxUnitFit;
+        final int MIN_UNIT = 160;
+        final int MAX_UNIT = 180;
         unit = Math.max(MIN_UNIT, Math.min(MAX_UNIT, unit));
 
         if (maxUnitFit > 0 && unit > maxUnitFit) {
@@ -356,8 +488,17 @@ public class CompactGui extends GuiScreen {
         GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
 
         if (dragging) {
-            containerX = clampContainerX(mouseX - dragOffsetX);
-            containerY = clampContainerY(mouseY - dragOffsetY);
+            // Compute the new container position directly from the raw mouse
+            // delta in display pixels, divided once by guiScale() with a
+            // round-to-nearest. Only one rounding instead of two, and against
+            // the actual cursor motion rather than the already-quantized
+            // virtual mouseX → cursor and container stay tightly coupled at
+            // every guiScale, especially at 1440p/4K.
+            float scale = guiScale();
+            int dpDeltaX = Mouse.getX() - dragStartMouseDpX;
+            int dpDeltaY = -(Mouse.getY() - dragStartMouseDpY); // Mouse.getY is bottom-up
+            containerX = clampContainerX(dragStartContainerX + Math.round(dpDeltaX / scale));
+            containerY = clampContainerY(dragStartContainerY + Math.round(dpDeltaY / scale));
             persistLayoutState(false);
         }
         if (detachedDragging && expandedCard != null && expandedCard.usesDetachedSettingsPanel()) {
@@ -585,7 +726,7 @@ public class CompactGui extends GuiScreen {
         contentScissorW = containerW - SIDEBAR_WIDTH - 16;
         contentScissorH = contentH + 8;
 
-        RenderUtils.glScissor(contentScissorX, contentScissorY, contentScissorW, contentScissorH);
+        glScissorDp(contentScissorX, contentScissorY, contentScissorW, contentScissorH);
         GL11.glEnable(GL11.GL_SCISSOR_TEST);
 
         if (customConfigView) {
@@ -601,6 +742,14 @@ public class CompactGui extends GuiScreen {
                 card.setListIndex(i);
                 card.setPosition(contentX, cardY, contentW, CARD_HEIGHT);
                 card.drawHeader(mouseX, mouseY, palette);
+                // Drawing the expanded settings inline (rather than in a
+                // second dedicated pass for only the currently-expanded card)
+                // lets BOTH opening and closing cards animate smoothly — the
+                // card whose expandAnim is shrinking back to 0 still gets a
+                // chance to draw its fading-out settings region.
+                if (!card.usesDetachedSettingsPanel()) {
+                    card.drawExpandedSettings(mouseX, mouseY, palette);
+                }
                 cardY += card.getTotalHeight() + CARD_GAP;
             }
             if (moduleCards.isEmpty()) {
@@ -609,13 +758,6 @@ public class CompactGui extends GuiScreen {
         }
 
         GL11.glDisable(GL11.GL_SCISSOR_TEST);
-
-        if (!customConfigView && !customThemeView && expandedCard != null && !expandedCard.usesDetachedSettingsPanel()) {
-            RenderUtils.glScissor(contentScissorX, contentScissorY, contentScissorW, contentScissorH);
-            GL11.glEnable(GL11.GL_SCISSOR_TEST);
-            expandedCard.drawExpandedSettings(mouseX, mouseY, palette);
-            GL11.glDisable(GL11.GL_SCISSOR_TEST);
-        }
 
         drawScrollDecorations(palette, contentX + contentW - 3, contentY, contentH, mouseX, mouseY);
     }
@@ -651,7 +793,7 @@ public class CompactGui extends GuiScreen {
         detachedScissorW = contentW;
         detachedScissorH = contentH;
 
-        RenderUtils.glScissor(detachedScissorX, detachedScissorY, detachedScissorW, detachedScissorH);
+        glScissorDp(detachedScissorX, detachedScissorY, detachedScissorW, detachedScissorH);
         GL11.glEnable(GL11.GL_SCISSOR_TEST);
         expandedCard.drawDetachedSettings(mouseX, mouseY, palette, contentX, contentY, contentW, (int) detachedScrollAnim.get());
         GL11.glDisable(GL11.GL_SCISSOR_TEST);
@@ -701,8 +843,14 @@ public class CompactGui extends GuiScreen {
 
         if (mouseButton == 0 && isOverDragZone(mouseX, mouseY)) {
             dragging = true;
+            // Keep dragOffset for legacy callers; the actual drag-update loop
+            // uses the display-pixel snapshot below for precision.
             dragOffsetX = mouseX - containerX;
             dragOffsetY = mouseY - containerY;
+            dragStartMouseDpX = Mouse.getX();
+            dragStartMouseDpY = Mouse.getY();
+            dragStartContainerX = containerX;
+            dragStartContainerY = containerY;
             return;
         }
 
@@ -1247,6 +1395,13 @@ public class CompactGui extends GuiScreen {
             card.setListIndex(i);
             card.setPosition(contentX, cardY, contentW, CARD_HEIGHT);
             card.drawHeader(mouseX, mouseY, palette);
+            // Same inline-settings call as the regular category view —
+            // without this the search tab can't show expanded settings,
+            // so right-clicking a module in search results would toggle
+            // the expandAnim but render nothing under the card.
+            if (!card.usesDetachedSettingsPanel()) {
+                card.drawExpandedSettings(mouseX, mouseY, palette);
+            }
             cardY += card.getTotalHeight() + CARD_GAP;
         }
 

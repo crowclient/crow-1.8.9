@@ -13,7 +13,7 @@ public class Parkour extends Module {
     private final CoolDown cd = new CoolDown(1);
 
     public Parkour() {
-        super("Parkour", ModuleCategory.player);
+        super("Parkour", ModuleCategory.movement);
     }
 
     @Subscribe

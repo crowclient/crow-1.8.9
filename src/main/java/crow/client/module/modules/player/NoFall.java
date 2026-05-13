@@ -15,7 +15,7 @@ public class NoFall extends Module {
     boolean spoofing;
 
     public NoFall() {
-        super("NoFall", ModuleCategory.player);
+        super("NoFall", ModuleCategory.movement);
 
         this.registerSetting(warning = new DescriptionSetting("Hypixel mode silent flags."));
         this.registerSetting(mode = new ComboSetting("Mode", Mode.Spoof));

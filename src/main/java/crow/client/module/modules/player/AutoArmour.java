@@ -6,6 +6,7 @@ import java.util.concurrent.ThreadLocalRandom;
 
 import com.google.common.eventbus.Subscribe;
 
+import crow.client.event.impl.ForgeEvent;
 import crow.client.event.impl.Render2DEvent;
 import crow.client.module.Module;
 import crow.client.module.setting.impl.ComboSetting;
@@ -20,6 +21,9 @@ import net.minecraft.inventory.ContainerPlayer;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemArmor;
 import net.minecraft.item.ItemStack;
+import net.minecraftforge.event.entity.player.AttackEntityEvent;
+import net.minecraftforge.event.entity.player.PlayerInteractEvent;
+import org.lwjgl.input.Mouse;
 
 public class AutoArmour extends Module {
 
@@ -39,6 +43,16 @@ public class AutoArmour extends Module {
     private boolean rescanArmed;
     private final List<ArmorAction> actionQueue = new ArrayList<>();
     private int actionsThisTick;
+
+    /**
+     * Last time the player did anything click-like (attack, use-item,
+     * mouse held). Action execution defers until this window has elapsed
+     * so a windowClick packet never lands adjacent to an AttackInteract
+     * or PlayerDigging — that adjacency is a common anticheat heuristic
+     * for "inventory bot" flags.
+     */
+    private long lastClickMs;
+    private static final long POST_CLICK_WINDOW_MS = 320L;
 
     private static final int[] ARMOR_SLOTS = { 5, 6, 7, 8 };
 
@@ -60,8 +74,29 @@ public class AutoArmour extends Module {
     }
 
     @Subscribe
+    public void onAttackOrUse(ForgeEvent fe) {
+        // Catches the two highest-flag-risk events for back-to-back inventory
+        // actions: AttackInteract (left-click on entity) and PlayerInteract
+        // (right-click world/block/entity, item use). Updating lastClickMs
+        // here covers cases where the player taps the button so briefly that
+        // the onRender2D Mouse.isButtonDown poll misses it.
+        Object event = fe.getEvent();
+        if (event instanceof AttackEntityEvent
+                || event instanceof PlayerInteractEvent) {
+            lastClickMs = System.currentTimeMillis();
+        }
+    }
+
+    @Subscribe
     public void onRender2D(Render2DEvent e) {
         if (!Utils.Player.isPlayerInGame()) return;
+
+        // Poll mouse state every frame so held-down clicks (auto-clicker,
+        // sustained sword swing) keep the post-click window armed for as
+        // long as the player is interacting.
+        if (Mouse.isButtonDown(0) || Mouse.isButtonDown(1)) {
+            lastClickMs = System.currentTimeMillis();
+        }
 
         ArmorMode currentMode = (ArmorMode) mode.getMode();
 
@@ -82,6 +117,13 @@ public class AutoArmour extends Module {
                 timer.setCooldown(randomBetween(startDelay));
                 timer.start();
                 rescanArmed = false;
+            }
+
+            // Gate action execution on the post-click window. Action stays
+            // queued; we simply skip this frame and resume on a later one
+            // once the player has been idle long enough.
+            if (System.currentTimeMillis() - lastClickMs < POST_CLICK_WINDOW_MS) {
+                return;
             }
 
             if (!actionQueue.isEmpty() && timer.hasFinished()) {

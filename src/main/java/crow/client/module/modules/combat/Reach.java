@@ -44,10 +44,21 @@ public class Reach extends Module {
     private static long combatStartTime = 0;
     private static final long COMBAT_RESET_MS = 4000;
 
+    /**
+     * Server-side cap on attack distance. NetHandlerPlayServer rejects
+     * AttackInteract if {@code playerEntity.getDistanceSqToEntity(entity) >= 36}
+     * — i.e. anything ≥ 6.0 blocks. Reach values above this silently no-op
+     * server-side, so we clamp here.
+     */
+    private static final double SERVER_REACH_LIMIT = 5.99;
+
     public Reach() {
         super("Reach", ModuleCategory.combat);
         this.registerSetting(reachMode = new ComboSetting("Mode", ReachMode.NORMAL));
-        this.registerSetting(reach = new DoubleSliderSetting("Reach (Blocks)", 3.1, 3.3, 3, 6, 0.05));
+        // Defaults bumped from 3.1/3.3 → 5.0/6.0 so the module actually
+        // delivers extended reach out of the box; the old defaults gave you
+        // ~0.1 blocks of reach above vanilla.
+        this.registerSetting(reach = new DoubleSliderSetting("Reach (Blocks)", 5.0, 6.0, 3, 6, 0.05));
         this.registerSetting(chance = new SliderSetting("Chance %", 100, 0, 100, 1));
         this.registerSetting(weapon_only = new TickSetting("Weapon only", false));
         this.registerSetting(moving_only = new TickSetting("Moving only", false));
@@ -171,14 +182,20 @@ public class Reach extends Module {
                     if (mc.thePlayer != null && Math.abs(mc.thePlayer.moveStrafing) > 0.01F) {
                         base += 0.05 + ThreadLocalRandom.current().nextDouble(0.08);
                     }
-                    currentReach = clampReach(base, min, max + 0.15);
+                    // Cap at the slider's max instead of max+0.15 — the prior
+                    // +0.15 bonus could push beyond 6.0 and get silently
+                    // rejected server-side.
+                    currentReach = clampReach(base, min, max);
                     break;
                 }
                 case DYNAMIC: {
 
+                    // Ramp the upper bound from `min + 0.4*range` early in a
+                    // fight to the full `max` as the combo progresses, so a
+                    // 6.0 slider actually delivers 6.0 once the combo is going.
                     double progress = Math.min(1.0, hitCount / 12.0);
                     double dynMin = min + (max - min) * 0.2 * progress;
-                    double dynMax = min + (max - min) * (0.5 + 0.5 * progress);
+                    double dynMax = min + (max - min) * (0.4 + 0.6 * progress);
                     currentReach = gaussianReach(dynMin, dynMax);
                     break;
                 }
@@ -190,7 +207,12 @@ public class Reach extends Module {
             }
         }
 
-        return currentReach + creativeOffset();
+        // Server caps attacks at distSq ≥ 36 (6.0 blocks); clamp so we never
+        // send a packet the server will silently drop. creativeOffset adds
+        // 2.0 inside creative where extendedReach is true — that's separate
+        // from PvP reach so it sits outside the clamp.
+        double clamped = Math.min(currentReach, SERVER_REACH_LIMIT);
+        return clamped + creativeOffset();
     }
 
     private static double gaussianReach(double min, double max) {

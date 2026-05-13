@@ -87,14 +87,17 @@ public class CompactModuleCard {
     }
 
     public int getTotalHeight() {
-        boolean expanded = gui.getExpandedCard() == this;
-        if (!expanded) {
-            return h;
-        }
         if (usesDetachedSettingsPanel()) {
             return h;
         }
-        return h + getSettingsHeight();
+        // Interpolate the card height by expandAnim so cards below cascade
+        // smoothly while this one opens, and so that closing also animates
+        // (expandAnim drifts back to 0 even after expandedCard is reset).
+        float anim = expandAnim.get();
+        if (anim < 0.005F) {
+            return h;
+        }
+        return h + (int) Math.round(getSettingsHeight() * anim);
     }
 
     private int getSettingsHeight() {
@@ -207,13 +210,29 @@ public class CompactModuleCard {
         if (usesDetachedSettingsPanel()) {
             return;
         }
-        if (expandAnim.get() < 0.01F) {
+        float anim = expandAnim.get();
+        if (anim < 0.01F) {
             return;
         }
 
+        // Clip drawing to the card's animated bounding box. As expandAnim
+        // grows 0 → 1, the card height grows from h → h + getSettingsHeight,
+        // so the scissor reveals the settings progressively from the top of
+        // the panel downward. Settings below the current animated bottom edge
+        // are masked, so they neatly slide into view instead of popping in.
+        int animatedTotal = h + (int) Math.round(getSettingsHeight() * anim);
+        gui.applyCardClipScissor(x, y, w, animatedTotal);
+
+        // Small parallax: while opening, the settings start a few pixels above
+        // their final resting Y and ease down. The offset disappears by the
+        // time anim crosses ~0.75 so click bounds (gated at anim > 0.3) stay
+        // close enough to the visual position.
+        float openProgress = Math.min(1.0F, anim / 0.75F);
+        int yOffset = -(int) Math.round((1.0F - openProgress) * 6.0F);
+
         int settingsX = x + SETTINGS_INDENT;
         int settingsW = w - SETTINGS_INDENT * 2;
-        int drawY = y + h + SETTING_TOP_PAD;
+        int drawY = y + h + SETTING_TOP_PAD + yOffset;
 
         for (Object sc : settingComponents) {
             int compH = getComponentHeight(sc);
@@ -246,6 +265,8 @@ public class CompactModuleCard {
             bindComponent.setPosition(settingsX, drawY, settingsW, 24);
             bindComponent.draw(mouseX, mouseY, palette);
         }
+
+        gui.restoreContentScissor();
     }
 
     public boolean usesDetachedSettingsPanel() {

@@ -172,6 +172,7 @@ public class Statistics extends Module {
     public void onRender2D(Render2DEvent e) {
         if (!Utils.Player.isPlayerInGame()) return;
         if (mc.currentScreen != null && !(mc.currentScreen instanceof GuiChat)) return;
+        if (mc.gameSettings.showDebugInfo) return;
 
         List<StatLine> lines = buildLines();
         if (lines.isEmpty() && !showPlaytime.isToggled()) return;
@@ -297,7 +298,7 @@ public class Statistics extends Module {
 
         if (useBlur) {
             GUIBlurUtil.drawBlurredBackground(left, top, boxW, boxH,
-                    (int) HUD.blurRadius.getInput(), boxH / 2, 0.55f);
+                    (int) HUD.blurRadius.getInput(), boxH / 2, 0.6f);
             mc.entityRenderer.setupOverlayRendering();
         }
 
@@ -332,7 +333,7 @@ public class Statistics extends Module {
         handleDragging(x, y, x + w, y + h);
 
         int accentRGB = GuiModule.getThemeColor(0) & 0x00FFFFFF;
-        RenderUtils.drawRoundedRectAA(x, y, x + w, y + h, h / 2.0F, 0xC414171D);
+        RenderUtils.drawRoundedRectAA(x, y, x + w, y + h, h / 2.0F, 0xD814171D);
         float textY = y + (h - getInlineHeight(false)) / 2.0F;
         drawInlineText(text, x + 7, textY, accentRGB, false);
     }
@@ -608,7 +609,7 @@ public class Statistics extends Module {
             mc.entityRenderer.setupOverlayRendering();
         }
 
-        RenderUtils.drawRoundedRectAA(boxL, boxT, boxR, boxB, corner, 0xCC0E0F12);
+        RenderUtils.drawRoundedRectAA(boxL, boxT, boxR, boxB, corner, 0xD814171D);
 
         boolean inChat = mc.currentScreen instanceof GuiChat;
         int mx = -1, my = -1;

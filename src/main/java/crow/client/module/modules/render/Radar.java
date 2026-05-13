@@ -52,6 +52,7 @@ public class Radar extends Module {
     public void render2D(Render2DEvent e) {
         if (!Utils.Player.isPlayerInGame()) return;
         if (mc.currentScreen != null && !(mc.currentScreen instanceof GuiChat)) return;
+        if (mc.gameSettings.showDebugInfo) return;
 
         int x = (int) posX.getInput();
         int y = (int) posY.getInput();

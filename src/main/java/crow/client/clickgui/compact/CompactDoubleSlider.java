@@ -89,22 +89,37 @@ public class CompactDoubleSlider {
                     Math.min(220, gradientAlpha), 0);
         }
 
+        // Circular knobs: square footprint with cardR = half the side so
+        // drawRoundedRectAA produces a true circle. Same 12-px size and
+        // shadow/glow treatment as CompactSlider for visual consistency.
+        final int knobR = 6;
+        int knobY = barY + barH / 2;
+
         if (activeAnimation > 0.02F) {
-            int glowAlpha = (int) (30 * activeAnimation);
+            int glowR = knobR + 4;
+            int glowAlpha = (int) (40 * activeAnimation);
             int glowColor = (glowAlpha << 24) | (palette.accent & 0x00FFFFFF);
             if (activeHandle == Handle.MIN || !dragging) {
-                RenderUtils.drawRoundedRectAA(minX - 7, barY - 6, minX + 7, barY + barH + 5, 7, glowColor);
+                RenderUtils.drawRoundedRectAA(minX - glowR, knobY - glowR,
+                        minX + glowR, knobY + glowR, glowR, glowColor);
             }
             if (activeHandle == Handle.MAX || !dragging) {
-                RenderUtils.drawRoundedRectAA(maxX - 7, barY - 6, maxX + 7, barY + barH + 5, 7, glowColor);
+                RenderUtils.drawRoundedRectAA(maxX - glowR, knobY - glowR,
+                        maxX + glowR, knobY + glowR, glowR, glowColor);
             }
         }
 
-        RenderUtils.drawRoundedRectAA(minX - 3, barY - 2, minX + 5, barY + 9, 4, 0x18000000);
-        RenderUtils.drawRoundedRectAA(maxX - 3, barY - 2, maxX + 5, barY + 9, 4, 0x18000000);
+        // Drop shadows.
+        RenderUtils.drawRoundedRectAA(minX - knobR + 1, knobY - knobR + 1,
+                minX + knobR + 1, knobY + knobR + 1, knobR, 0x33000000);
+        RenderUtils.drawRoundedRectAA(maxX - knobR + 1, knobY - knobR + 1,
+                maxX + knobR + 1, knobY + knobR + 1, knobR, 0x33000000);
 
-        RenderUtils.drawRoundedRectAA(minX - 4, barY - 3, minX + 4, barY + 8, 4, 0xFFFFFFFF);
-        RenderUtils.drawRoundedRectAA(maxX - 4, barY - 3, maxX + 4, barY + 8, 4, 0xFFFFFFFF);
+        // White circle bodies.
+        RenderUtils.drawRoundedRectAA(minX - knobR, knobY - knobR,
+                minX + knobR, knobY + knobR, knobR, 0xFFFFFFFF);
+        RenderUtils.drawRoundedRectAA(maxX - knobR, knobY - knobR,
+                maxX + knobR, knobY + knobR, knobR, 0xFFFFFFFF);
     }
 
     public void mouseClicked(int mouseX, int mouseY, int button) {

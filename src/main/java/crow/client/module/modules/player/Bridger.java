@@ -54,7 +54,7 @@ public class Bridger extends Module {
     private float hudDisplayedCount;
 
     public Bridger() {
-        super("Bridger", ModuleCategory.player);
+        super("Bridger", ModuleCategory.world);
         this.registerSetting(autoShift = new TickSetting("Auto shift", true));
         this.registerSetting(requireShiftHold = new TickSetting("Require shift hold", false));
         this.registerSetting(shiftOnJump = new TickSetting("Shift during jumps", false));

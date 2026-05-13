@@ -68,7 +68,6 @@ import crow.client.module.modules.player.AutoArmour;
 import crow.client.module.modules.player.AutoJump;
 import crow.client.module.modules.player.AutoPlace;
 import crow.client.module.modules.player.AutoTool;
-import crow.client.module.modules.player.BedAura;
 import crow.client.module.modules.player.Blink;
 import crow.client.module.modules.player.BlinkInfinite;
 import crow.client.module.modules.player.Bridger;
@@ -213,6 +212,15 @@ public class ModuleManager {
         addModule(new AntiBot());
         addModule(new NameHider());
         addModule(new AutoGG());
+        addModule(new ChatLogger());
+        addModule(new FakeChat());
+        addModule(new MiddleClick());
+        addModule(new WaterBucket());
+        addModule(new AutoPlace());
+        addModule(new AutoJump());
+        addModule(new Parkour());
+        addModule(new FallSpeed());
+        addModule(new Freecam());
 
         addModule(new Developer());
         addModule(new GuiModule());

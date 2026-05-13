@@ -107,7 +107,9 @@ public class CustomHotbar extends Module {
     @Subscribe
     public void onRender2D(Render2DEvent event) {
         if (!shouldReplaceVanilla() || mc.thePlayer == null || mc.thePlayer.inventory == null) return;
-        if ((mc.currentScreen != null && !(mc.currentScreen instanceof GuiChat)) || mc.gameSettings.showDebugInfo) return;
+        // CustomHotbar stays visible with F3 open — the vanilla hotbar
+        // doesn't get hidden by F3 either, so the replacement shouldn't.
+        if (mc.currentScreen != null && !(mc.currentScreen instanceof GuiChat)) return;
 
         long now = System.currentTimeMillis();
         if (lastFrameMs == 0L) lastFrameMs = now;

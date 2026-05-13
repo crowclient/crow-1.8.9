@@ -16,7 +16,7 @@ public class ChatLogger extends Module {
     public String extension;
 
     public ChatLogger() {
-        super("Chat Logger", ModuleCategory.world);
+        super("Chat Logger", ModuleCategory.other);
 
         extension = "txt";
         dir = new File(crow.client.main.Crow.getDataDir(), "logs");

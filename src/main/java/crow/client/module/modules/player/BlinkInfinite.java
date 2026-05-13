@@ -34,7 +34,7 @@ public class BlinkInfinite extends Module {
     private int ticksActive;
 
     public BlinkInfinite() {
-        super("BlinkInfinite", ModuleCategory.player);
+        super("BlinkInfinite", ModuleCategory.movement);
         this.withDescription("Holds outgoing packets and drains them slowly (1 every N ticks). Queue grows unbounded — effectively infinite blink.");
         this.registerSetting(ticksPerRelease = new SliderSetting("Ticks per release", 4, 1, 40, 1));
         this.registerSetting(maxQueueSize = new SliderSetting("Max queue size", 2000, 100, 10000, 100));

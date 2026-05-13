@@ -10,9 +10,11 @@ import crow.client.module.setting.impl.ComboSetting;
 import crow.client.module.setting.impl.RGBSetting;
 import crow.client.module.setting.impl.SliderSetting;
 import crow.client.module.setting.impl.TickSetting;
+import crow.client.utils.RenderUtils;
 import crow.client.utils.Utils;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.ScaledResolution;
+import net.minecraft.client.gui.inventory.GuiContainer;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraftforge.client.event.RenderWorldLastEvent;
@@ -36,10 +38,13 @@ public class PlayerESP extends Module {
     public static TickSetting redOnDamage;
     public static TickSetting healthBar;
     public static TickSetting outline;
+    public static TickSetting hideInInventory;
     public static SliderSetting expand;
     public static SliderSetting cornerLength;
+    public static SliderSetting outlineThickness;
+    public static SliderSetting glowSpread;
 
-    public enum ESPMode { Corner, Box, Health }
+    public enum ESPMode { Corner, Box, Health, Glow, Outline }
 
     private int espColor;
 
@@ -69,10 +74,17 @@ public class PlayerESP extends Module {
         this.registerSetting(outline = new TickSetting("Black outline", true));
         this.registerSetting(cornerLength = new SliderSetting("Corner length", 8, 3, 20, 1));
         cornerLength.visibleWhen(() -> espMode != null && espMode.getMode() == ESPMode.Corner);
+        this.registerSetting(outlineThickness = new SliderSetting("Outline thickness", 2.0D, 1.0D, 6.0D, 0.5D));
+        outlineThickness.visibleWhen(() -> espMode != null && espMode.getMode() == ESPMode.Outline);
+        this.registerSetting(glowSpread = new SliderSetting("Glow spread", 4.0D, 1.0D, 12.0D, 0.5D));
+        glowSpread.visibleWhen(() -> espMode != null && espMode.getMode() == ESPMode.Glow);
         this.registerSetting(expand = new SliderSetting("Expand", 0.0D, -0.3D, 2.0D, 0.1D));
         this.registerSetting(showInvis = new TickSetting("Show invis", true));
         this.registerSetting(filterNPCs = new TickSetting("Filter NPCs", true));
         this.registerSetting(redOnDamage = new TickSetting("Red on damage", true));
+        // Default off — ESP keeps rendering through the inventory unless the
+        // user opts in to having it disappear there.
+        this.registerSetting(hideInInventory = new TickSetting("Hide in inventory", false));
     }
 
     @Override
@@ -82,7 +94,12 @@ public class PlayerESP extends Module {
 
     @Subscribe
     public void onForgeEvent(ForgeEvent fe) {
-        if (mc.currentScreen != null) {
+        // Only hide when the player explicitly opted in to "Hide in inventory"
+        // AND the open screen is an inventory-like container. Chat, the
+        // click GUI, and other floating screens leave the ESP visible.
+        if (mc.currentScreen != null
+                && hideInInventory != null && hideInInventory.isToggled()
+                && mc.currentScreen instanceof GuiContainer) {
             pendingBoxes.clear();
             return;
         }
@@ -177,13 +194,23 @@ public class PlayerESP extends Module {
 
     @Subscribe
     public void onRender2D(Render2DEvent event) {
-        if (mc.currentScreen != null || pendingBoxes.isEmpty()) return;
+        // Mirror the inventory gate in onForgeEvent — don't render 2D ESP
+        // through inventory-like screens when the user opts in.
+        if (mc.currentScreen != null
+                && hideInInventory != null && hideInInventory.isToggled()
+                && mc.currentScreen instanceof GuiContainer) {
+            return;
+        }
+        if (pendingBoxes.isEmpty()) return;
         if (!Utils.Player.isPlayerInGame()) return;
 
         GlStateManager.pushMatrix();
         mc.entityRenderer.setupOverlayRendering();
 
+        ESPMode mode = (ESPMode) espMode.getMode();
         int cLen = (int) cornerLength.getInput();
+        float outlineThick = (float) outlineThickness.getInput();
+        float glowSpreadVal = (float) glowSpread.getInput();
 
         for (ScreenBox box : pendingBoxes) {
             int left   = (int) box.minX;
@@ -193,13 +220,27 @@ public class PlayerESP extends Module {
             int boxWidth = Math.max(1, right - left);
             int boxHeight = Math.max(1, bottom - top);
             int shortestSide = Math.min(boxWidth, boxHeight);
-            int dynamicLen = Math.max(2, Math.min(cLen, shortestSide / 4));
-            int outlineThickness = shortestSide < 18 ? 0 : (shortestSide < 34 ? 1 : 2);
 
-            if (outline.isToggled() && outlineThickness > 0) {
-                drawCorners(left, top, right, bottom, dynamicLen, 0xFF000000, outlineThickness);
+            switch (mode) {
+                case Glow:
+                    drawGlow(left, top, right, bottom, box.color, glowSpreadVal);
+                    break;
+                case Outline:
+                    drawOutline(left, top, right, bottom, box.color, outlineThick,
+                            outline.isToggled());
+                    break;
+                case Corner:
+                default: {
+                    int dynamicLen = Math.max(2, Math.min(cLen, shortestSide / 4));
+                    int outerThick = shortestSide < 18 ? 0 : (shortestSide < 34 ? 1 : 2);
+                    if (outline.isToggled() && outerThick > 0) {
+                        drawCorners(left, top, right, bottom, dynamicLen, 0xFF000000, outerThick);
+                    }
+                    drawCornersFill(left, top, right, bottom, dynamicLen, box.color,
+                            shortestSide < 16 ? 1 : 2);
+                    break;
+                }
             }
-            drawCornersFill(left, top, right, bottom, dynamicLen, box.color, shortestSide < 16 ? 1 : 2);
 
             if (box.drawHealth) {
                 drawHealthBarSide(left, top, right, bottom, box.healthRatio);
@@ -208,6 +249,46 @@ public class PlayerESP extends Module {
 
         GlStateManager.popMatrix();
         GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+    }
+
+    /**
+     * Soft glow halo around the entity's screen rect — layered rounded
+     * rectangles at expanding radii with falling alpha. Visually distinct
+     * from Outline and Corner: no hard edge, just a haze of theme color.
+     */
+    private void drawGlow(int left, int top, int right, int bottom, int color, float spread) {
+        int rgb = color & 0x00FFFFFF;
+        // Soft halo: 6 concentric rounded rects spreading outward.
+        int layers = 6;
+        for (int i = layers; i >= 1; i--) {
+            float pad = (i / (float) layers) * spread * 2.0F;
+            float r = 4.0F + pad * 0.6F;
+            // Quadratic alpha fall-off so the outer layers are faint and
+            // the inner glow has more presence.
+            float falloff = 1.0F - (i / (float) layers);
+            int a = Math.max(0, Math.min(255, (int) (95 * falloff * falloff)));
+            if (a <= 0) continue;
+            RenderUtils.drawRoundedRectAA(left - pad, top - pad, right + pad, bottom + pad, r,
+                    (a << 24) | rgb);
+        }
+        // Bright core outline so the glow has a defined center.
+        RenderUtils.drawRoundedOutline(left, top, right, bottom, 2.5F, 1.0F,
+                0xCC000000 | rgb);
+    }
+
+    /**
+     * Clean solid-colored rectangular outline. Black backing stroke is
+     * drawn when the "Black outline" tick is on so the line stays legible
+     * against bright skins / terrain.
+     */
+    private void drawOutline(int left, int top, int right, int bottom, int color,
+                              float thickness, boolean blackOutline) {
+        if (blackOutline) {
+            RenderUtils.drawRoundedOutline(left - 1, top - 1, right + 1, bottom + 1,
+                    3.0F, thickness + 2.0F, 0xFF000000);
+        }
+        RenderUtils.drawRoundedOutline(left, top, right, bottom, 2.5F, thickness,
+                0xFF000000 | (color & 0x00FFFFFF));
     }
 
     private void drawCornersFill(int left, int top, int right, int bottom, int len, int color, int thickness) {

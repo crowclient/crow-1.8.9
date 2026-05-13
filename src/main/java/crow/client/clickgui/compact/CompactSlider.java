@@ -71,20 +71,33 @@ public class CompactSlider {
                     Math.min(220, gradientAlpha), 0);
         }
 
-        int knobCenter = x + fillW;
-        int knobHalfW = 4;
+        // Circular knob: square footprint with cardR = half the side, so the
+        // rounded rect AA pass produces a true circle. Sized 12px so it sits
+        // proudly above the 6px-tall bar with some overlap on each side.
+        final int knobR = 6;
+        int knobCenterX = x + fillW;
+        int knobCenterY = barY + barH / 2;
 
         if (activeAnimation > 0.02F) {
-            int glowAlpha = (int) (35 * activeAnimation);
+            int glowR = knobR + 4;
+            int glowAlpha = (int) (40 * activeAnimation);
             RenderUtils.drawRoundedRectAA(
-                    knobCenter - knobHalfW - 3, barY - 6,
-                    knobCenter + knobHalfW + 3, barY + barH + 5,
-                    7, (glowAlpha << 24) | (palette.accent & 0x00FFFFFF));
+                    knobCenterX - glowR, knobCenterY - glowR,
+                    knobCenterX + glowR, knobCenterY + glowR,
+                    glowR, (glowAlpha << 24) | (palette.accent & 0x00FFFFFF));
         }
 
-        RenderUtils.drawRoundedRectAA(knobCenter - knobHalfW + 1, barY - 2, knobCenter + knobHalfW + 1, barY + 9, 4, 0x18000000);
+        // Drop shadow, 1px offset.
+        RenderUtils.drawRoundedRectAA(
+                knobCenterX - knobR + 1, knobCenterY - knobR + 1,
+                knobCenterX + knobR + 1, knobCenterY + knobR + 1,
+                knobR, 0x33000000);
 
-        RenderUtils.drawRoundedRectAA(knobCenter - knobHalfW, barY - 3, knobCenter + knobHalfW, barY + 8, 4, 0xFFFFFFFF);
+        // White circle body.
+        RenderUtils.drawRoundedRectAA(
+                knobCenterX - knobR, knobCenterY - knobR,
+                knobCenterX + knobR, knobCenterY + knobR,
+                knobR, 0xFFFFFFFF);
     }
 
     public void mouseClicked(int mouseX, int mouseY, int button) {
