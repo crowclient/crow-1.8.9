@@ -6,7 +6,7 @@ import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.event.FMLInitializationEvent;
 
-@Mod(modid = "crow", name = Crow.CLIENT_NAME, version = "1.2.8", acceptedMinecraftVersions = "[1.8.9]", clientSideOnly = true)
+@Mod(modid = "crow", name = Crow.CLIENT_NAME, version = "1.2.9", acceptedMinecraftVersions = "[1.8.9]", clientSideOnly = true)
 
 public class KeyStrokeMod {
     private static KeyStroke keyStroke = new KeyStroke();

@@ -156,7 +156,7 @@ public class CrowMainMenu extends GuiScreen implements GuiYesNoCallback {
         // Version badge — bottom-right, muted. Stripped the leading
         // EnumChatFormatting code (FontUtil doesn't parse §-codes; it
         // would render as a literal "§7" prefix on top of the text).
-        String version = "Build 1.2.8";
+        String version = "Build 1.2.9";
         drawSmall(version, width - getSmallWidth(version) - 12, height - 18, 0x9AB4BBC7);
 
         super.drawScreen(mouseX, mouseY, partialTicks);
