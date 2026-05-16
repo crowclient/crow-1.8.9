@@ -57,7 +57,13 @@ public class ClientConfig {
         applyingConfig = true;
         try {
             Utils.URLS.hypixelApiKey = config.get("apikey").getAsString();
-            loadClickGuiCoords(config.get("clickgui").getAsJsonObject().get("catPos").getAsJsonObject());
+            // Pass the parent clickgui object — loadClickGuiCoords pulls
+            // catPos out itself, and ALSO reads sibling fields like
+            // "compactX/Y" and "spacious" that live on clickgui directly,
+            // not inside catPos. Previously this passed catPos and those
+            // sibling lookups silently no-op'd, so SpaciousGui layout and
+            // CompactGui position never restored across restarts.
+            loadClickGuiCoords(config.get("clickgui").getAsJsonObject());
             Crow.configManager.loadConfigByName(config.get("currentconfig").getAsString());
             loadHudCoords(config.get("hud").getAsJsonObject());
             loadTerminalCoords(config.get("clickgui").getAsJsonObject());
@@ -166,9 +172,16 @@ public class ClientConfig {
         return data;
     }
 
-    private void loadClickGuiCoords(JsonObject data) {
+    private void loadClickGuiCoords(JsonObject clickGuiData) {
+        // The legacy click-GUI's per-category positions live under a
+        // "catPos" sub-object; the sibling fields "compactX", "compactY",
+        // and "spacious" live directly on clickGuiData.
+        JsonObject catPos = clickGuiData.has("catPos")
+                ? clickGuiData.get("catPos").getAsJsonObject()
+                : clickGuiData; // legacy fallback for old files
         for (final CategoryComponent cat : Crow.clickGui.getCategoryList()) {
-            final JsonObject catData = data.get(cat.categoryName.name()).getAsJsonObject();
+            if (!catPos.has(cat.categoryName.name())) continue;
+            final JsonObject catData = catPos.get(cat.categoryName.name()).getAsJsonObject();
             cat.setCoords(catData.get("X").getAsInt(), catData.get("Y").getAsInt());
             cat.setOpened(catData.get("opened").getAsBoolean());
             if (cat.categoryName != ModuleCategory.category) {
@@ -178,11 +191,11 @@ public class ClientConfig {
                 Crow.moduleManager.guiModuleManager.getModuleByModuleCategory(cat.categoryName).setToggled(visable);
             }
         }
-        if (Crow.compactGui != null && data.has("compactX") && data.has("compactY")) {
-            Crow.compactGui.setSavedPosition(data.get("compactX").getAsInt(), data.get("compactY").getAsInt());
+        if (Crow.compactGui != null && clickGuiData.has("compactX") && clickGuiData.has("compactY")) {
+            Crow.compactGui.setSavedPosition(clickGuiData.get("compactX").getAsInt(), clickGuiData.get("compactY").getAsInt());
         }
-        if (Crow.spaciousGui != null && data.has("spacious")) {
-            Crow.spaciousGui.applyState(data.get("spacious").getAsJsonObject());
+        if (Crow.spaciousGui != null && clickGuiData.has("spacious")) {
+            Crow.spaciousGui.applyState(clickGuiData.get("spacious").getAsJsonObject());
         }
     }
 

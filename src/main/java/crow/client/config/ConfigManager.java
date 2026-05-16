@@ -44,10 +44,22 @@ public class ConfigManager {
             "pvp.crow"
     };
 
+    /**
+     * Bump this whenever a bundled featured config is updated. Existing user
+     * copies of the featured configs will be force-replaced on the next launch
+     * after the version increases.
+     */
+    private static final int FEATURED_CONFIG_VERSION = 2;
+    private static final String FEATURED_MARKER_NAME = ".featured-version";
+
     private void installFeaturedConfigs() {
+        File marker = new File(configDirectory, FEATURED_MARKER_NAME);
+        int installed = readFeaturedVersion(marker);
+        boolean forceReplace = installed < FEATURED_CONFIG_VERSION;
+
         for (String resourceName : FEATURED_CONFIGS) {
             File target = new File(configDirectory, resourceName);
-            if (target.exists()) continue;
+            if (target.exists() && !forceReplace) continue;
             java.io.InputStream in = ConfigManager.class.getResourceAsStream(
                     "/assets/crow/config/" + resourceName);
             if (in == null) continue;
@@ -63,6 +75,28 @@ public class ConfigManager {
             } finally {
                 try { in.close(); } catch (IOException ignored) {}
             }
+        }
+
+        if (forceReplace) {
+            writeFeaturedVersion(marker, FEATURED_CONFIG_VERSION);
+        }
+    }
+
+    private int readFeaturedVersion(File marker) {
+        if (!marker.isFile()) return 0;
+        try (java.io.BufferedReader r = new java.io.BufferedReader(new FileReader(marker))) {
+            String line = r.readLine();
+            if (line == null) return 0;
+            return Integer.parseInt(line.trim());
+        } catch (IOException | NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    private void writeFeaturedVersion(File marker, int version) {
+        try (java.io.FileWriter w = new java.io.FileWriter(marker)) {
+            w.write(Integer.toString(version));
+        } catch (IOException ignored) {
         }
     }
 

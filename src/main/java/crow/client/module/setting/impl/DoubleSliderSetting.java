@@ -65,8 +65,27 @@ public class DoubleSliderSetting extends Setting {
         if (!data.get("type").getAsString().equals(getSettingType()))
             return;
 
-        setValueMax(data.get("valueMax").getAsDouble());
-        setValueMin(data.get("valueMin").getAsDouble());
+        // Set both values directly, clamped only to the absolute [min, max]
+        // bounds. The per-setter cross-clamp (valMin clamped to current
+        // valMax and vice-versa) corrupts loads where the saved range is
+        // lower or higher than whatever range is currently in memory —
+        // e.g. saved 3.0–3.1 against defaults 5.0–6.0 used to load as
+        // 3.0–5.0 because setValueMax(3.1) clamped up to the in-memory
+        // valMin of 5.0 before setValueMin(3.0) ran.
+        double newMin = data.get("valueMin").getAsDouble();
+        double newMax = data.get("valueMax").getAsDouble();
+
+        newMin = correct(newMin, this.min, this.max);
+        newMax = correct(newMax, this.min, this.max);
+        if (newMin > newMax) {
+            double swap = newMin;
+            newMin = newMax;
+            newMax = swap;
+        }
+
+        double snap = 1.0D / this.interval;
+        this.valMin = Math.round(newMin * snap) / snap;
+        this.valMax = Math.round(newMax * snap) / snap;
     }
 
     @Override
