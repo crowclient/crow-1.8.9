@@ -15,11 +15,11 @@ public class LegitSpeed extends Module {
     public LegitSpeed() {
         super("LegitSpeed", ModuleCategory.movement);
 
-        this.registerSetting(speed = new TickSetting("Increase Speed", true));
+        this.registerSetting(speed = new TickSetting("Boost", true));
         this.registerSetting(speedInc = new SliderSetting("Speed", 1.12, 1, 1.4, 0.01));
-        this.registerSetting(fastFall = new TickSetting("Fast Fall", false));
-        this.registerSetting(legitStrafe = new TickSetting("Legit Strafe", false));
-        this.registerSetting(hypixelBypass = new TickSetting("Hypixel Bypass", false));
+        this.registerSetting(fastFall = new TickSetting("Fast fall", false));
+        this.registerSetting(legitStrafe = new TickSetting("Legit strafe", false));
+        this.registerSetting(hypixelBypass = new TickSetting("Hypixel", false));
     }
 
     @Subscribe

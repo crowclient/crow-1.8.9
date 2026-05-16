@@ -18,7 +18,7 @@ public class FallSpeed extends Module {
         super("FallSpeed", ModuleCategory.movement);
         this.registerSetting(dc = new DescriptionSetting("Vanilla max: 3.92"));
         this.registerSetting(a = new SliderSetting("Motion", 5.0D, 0.0D, 8.0D, 0.1D));
-        this.registerSetting(b = new TickSetting("Disable XZ motion", true));
+        this.registerSetting(b = new TickSetting("No XZ", true));
     }
 
     @Subscribe

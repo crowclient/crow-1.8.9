@@ -40,18 +40,18 @@ public class WTap extends Module {
     public WTap() {
         super("WTap", ModuleCategory.combat);
 
-        this.registerSetting(eventType = new ComboSetting("Event:", EventType.Attack));
-        this.registerSetting(onlyPlayers = new TickSetting("Only combo players", true));
-        this.registerSetting(onlySword = new TickSetting("Only sword", false));
+        this.registerSetting(eventType = new ComboSetting("Event", EventType.Attack));
+        this.registerSetting(onlyPlayers = new TickSetting("Players only", true));
+        this.registerSetting(onlySword = new TickSetting("Sword only", false));
 
-        this.registerSetting(waitMs = new DoubleSliderSetting("Release w for ... ms", 30, 40, 1, 300, 1));
-        this.registerSetting(actionMs = new DoubleSliderSetting("WTap after ... ms", 20, 30, 1, 300, 1));
-        this.registerSetting(hitPer = new DoubleSliderSetting("Once every ... hits", 1, 1, 1, 10, 1));
+        this.registerSetting(waitMs = new DoubleSliderSetting("Release ms", 30, 40, 1, 300, 1));
+        this.registerSetting(actionMs = new DoubleSliderSetting("Tap after", 20, 30, 1, 300, 1));
+        this.registerSetting(hitPer = new DoubleSliderSetting("Every N hits", 1, 1, 1, 10, 1));
         this.registerSetting(chance = new SliderSetting("Chance %", 100, 0, 100, 1));
-        this.registerSetting(range = new SliderSetting("Range: ", 3, 1, 6, 0.05));
+        this.registerSetting(range = new SliderSetting("Range", 3, 1, 6, 0.05));
 
-        this.registerSetting(dynamic = new TickSetting("Dynamic tap time", false));
-        this.registerSetting(tapMultiplier = new SliderSetting("wait time sensitivity", 1F, 0F, 5F, 0.1F));
+        this.registerSetting(dynamic = new TickSetting("Dynamic", false));
+        this.registerSetting(tapMultiplier = new SliderSetting("Wait sens", 1F, 0F, 5F, 0.1F));
     }
 
     @Override

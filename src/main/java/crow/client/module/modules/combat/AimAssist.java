@@ -45,6 +45,7 @@ public class AimAssist extends Module {
     public static TickSetting breakBlocks;
     public static TickSetting visibilityCheck;
     public static TickSetting showFovCircle;
+    public static TickSetting targetRing;
     public static ComboSetting targetMode;
     public static ArrayList<Entity> friends = new ArrayList<>();
 
@@ -80,19 +81,20 @@ public class AimAssist extends Module {
         super("AimAssist", ModuleCategory.combat);
         this.registerSetting(new DescriptionSetting("Set targets in Client->Targets"));
 
-        this.registerSetting(horizontalSpeed = new SliderSetting("Horizontal Speed", 0.35D, 0.01D, 1.0D, 0.01D));
-        this.registerSetting(verticalSpeed   = new SliderSetting("Vertical Speed",   0.35D, 0.01D, 1.0D, 0.01D));
+        this.registerSetting(horizontalSpeed = new SliderSetting("H speed", 0.35D, 0.01D, 1.0D, 0.01D));
+        this.registerSetting(verticalSpeed   = new SliderSetting("V speed",   0.35D, 0.01D, 1.0D, 0.01D));
         this.registerSetting(fov = new SliderSetting("FOV", 90.0D, 15.0D, 360.0D, 1.0D));
         this.registerSetting(distance = new SliderSetting("Distance", 4.5D, 1.0D, 8.0D, 0.1D));
-        this.registerSetting(pitchOffset = new SliderSetting("Pitch offset", 0.0D, -2.0D, 2.0D, 0.05D));
-        this.registerSetting(randomization = new SliderSetting("Randomization", 2.0D, 0.0D, 10.0D, 0.5D));
+        this.registerSetting(pitchOffset = new SliderSetting("Pitch off", 0.0D, -2.0D, 2.0D, 0.05D));
+        this.registerSetting(randomization = new SliderSetting("Random", 2.0D, 0.0D, 10.0D, 0.5D));
         this.registerSetting(clickAim = new TickSetting("Click aim", true));
         this.registerSetting(breakBlocks = new TickSetting("Break blocks", true));
         this.registerSetting(weaponOnly = new TickSetting("Weapon only", false));
         this.registerSetting(aimPitch = new TickSetting("Aim pitch", false));
-        this.registerSetting(visibilityCheck = new TickSetting("Visibility check", true));
-        this.registerSetting(showFovCircle = new TickSetting("Show FOV Circle", true));
-        this.registerSetting(targetMode = new ComboSetting("Target Area", TargetMode.Head));
+        this.registerSetting(visibilityCheck = new TickSetting("Visible only", true));
+        this.registerSetting(showFovCircle = new TickSetting("Show FOV", true));
+        this.registerSetting(targetRing = new TickSetting("Target ring", true));
+        this.registerSetting(targetMode = new ComboSetting("Target", TargetMode.Head));
     }
 
     @Override
@@ -152,6 +154,7 @@ public class AimAssist extends Module {
         if (!(fe.getEvent() instanceof RenderWorldLastEvent)) return;
         if (currentTarget != null && currentTarget.isEntityAlive()
                 && mc.thePlayer != null
+                && targetRing != null && targetRing.isToggled()
                 && mc.thePlayer.getDistanceToEntity(currentTarget) <= distance.getInput()) {
             int color = GuiModule.getThemeColor(0);
             Utils.HUD.drawRingAroundEntity(currentTarget, color, 0.6D, 0.05D, 2.0F);
@@ -245,7 +248,15 @@ public class AimAssist extends Module {
         ThreadLocalRandom r = ThreadLocalRandom.current();
         tickAimDrift(r);
 
-        double targetY = target.posY;
+        // Snap aim to the Backtrack shadow position if active — so we
+        // aim at the position the server's lag-comp window will accept
+        // the hit at, not at the entity's live position.
+        double[] btTarget = Backtrack.getAimTarget(target);
+        double targetX = btTarget != null ? btTarget[0] : target.posX;
+        double targetBaseY = btTarget != null ? btTarget[1] : target.posY;
+        double targetZ = btTarget != null ? btTarget[2] : target.posZ;
+
+        double targetY = targetBaseY;
         switch ((TargetMode) targetMode.getMode()) {
             case Head:
                 targetY += target.getEyeHeight() * (0.976D + r.nextDouble() * 0.028D);
@@ -262,9 +273,9 @@ public class AimAssist extends Module {
         }
         targetY += pitchOffset.getInput() + aimDriftPitch * 0.07D;
 
-        double diffX = target.posX - mc.thePlayer.posX;
+        double diffX = targetX - mc.thePlayer.posX;
         double diffY = targetY - (mc.thePlayer.posY + mc.thePlayer.getEyeHeight());
-        double diffZ = target.posZ - mc.thePlayer.posZ;
+        double diffZ = targetZ - mc.thePlayer.posZ;
         double dist = MathHelper.sqrt_double(diffX * diffX + diffZ * diffZ);
 
         float desiredYaw = (float) (Math.atan2(diffZ, diffX) * 180.0 / Math.PI) - 90.0F + aimDriftYaw * 0.35F;

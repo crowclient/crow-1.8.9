@@ -63,16 +63,16 @@ public class LagKB extends Module {
         this.registerSetting(new DescriptionSetting("§aClient-side KB reduction — no fake packets."));
 
         this.registerSetting(modeSetting = new ComboSetting<>("Mode", Mode.Reduce));
-        this.registerSetting(horizontal = new SliderSetting("Horizontal %", 85.0D, 0.0D, 100.0D, 1.0D));
-        this.registerSetting(vertical = new SliderSetting("Vertical %", 100.0D, 0.0D, 100.0D, 1.0D));
+        this.registerSetting(horizontal = new SliderSetting("H %", 85.0D, 0.0D, 100.0D, 1.0D));
+        this.registerSetting(vertical = new SliderSetting("V %", 100.0D, 0.0D, 100.0D, 1.0D));
         this.registerSetting(chance = new SliderSetting("Chance %", 100.0D, 0.0D, 100.0D, 1.0D));
-        this.registerSetting(reactionDelay = new SliderSetting("Reaction Delay", 0.0D, 0.0D, 5.0D, 1.0D));
-        this.registerSetting(reactionJitter = new SliderSetting("Reaction Jitter", 0.0D, 0.0D, 3.0D, 1.0D));
-        this.registerSetting(reversePower = new SliderSetting("Reverse Power", 0.3D, 0.05D, 1.0D, 0.05D));
-        this.registerSetting(reverseTicksDuration = new SliderSetting("Reverse Ticks", 1.0D, 1.0D, 3.0D, 1.0D));
-        this.registerSetting(onlyPlayers = new TickSetting("Only players", true));
-        this.registerSetting(onlyWhileTargeting = new TickSetting("Only while targeting", false));
-        this.registerSetting(onlySprinting = new TickSetting("Only while sprinting", false));
+        this.registerSetting(reactionDelay = new SliderSetting("React delay", 0.0D, 0.0D, 5.0D, 1.0D));
+        this.registerSetting(reactionJitter = new SliderSetting("React jitter", 0.0D, 0.0D, 3.0D, 1.0D));
+        this.registerSetting(reversePower = new SliderSetting("Rev power", 0.3D, 0.05D, 1.0D, 0.05D));
+        this.registerSetting(reverseTicksDuration = new SliderSetting("Rev ticks", 1.0D, 1.0D, 3.0D, 1.0D));
+        this.registerSetting(onlyPlayers = new TickSetting("Players only", true));
+        this.registerSetting(onlyWhileTargeting = new TickSetting("Targeting", false));
+        this.registerSetting(onlySprinting = new TickSetting("Sprint only", false));
         this.registerSetting(groundOnly = new TickSetting("Ground only", false));
         this.registerSetting(sprintReset = new TickSetting("Sprint reset", true));
     }

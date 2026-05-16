@@ -29,10 +29,10 @@ public class Keystrokes extends Module {
         super("Keystrokes", ModuleCategory.render);
         this.registerSetting(new DescriptionSetting("Shows your movement keys on screen."));
         this.registerSetting(new DescriptionSetting("Open chat to drag the overlay."));
-        this.registerSetting(showMouseButtons = new TickSetting("Show mouse buttons", KeyStroke.showMouseButtons));
+        this.registerSetting(showMouseButtons = new TickSetting("Mouse", KeyStroke.showMouseButtons));
         this.registerSetting(outline = new TickSetting("Outline", KeyStroke.outline));
         this.registerSetting(size = new SliderSetting("Size", KeyStroke.size, 0.6D, 1.8D, 0.05D));
-        this.registerSetting(backgroundOpacity = new SliderSetting("Background opacity", KeyStroke.backgroundOpacity, 40.0D, 255.0D, 1.0D));
+        this.registerSetting(backgroundOpacity = new SliderSetting("BG opacity", KeyStroke.backgroundOpacity, 40.0D, 255.0D, 1.0D));
         this.registerSetting(colorMode = new ComboSetting("Text color", getCurrentColor()));
         this.clientConfig = true;
     }

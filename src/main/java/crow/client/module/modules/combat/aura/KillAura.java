@@ -41,7 +41,7 @@ public class KillAura extends Module {
     public static SliderSetting reach, rotationSpeed;
     private DoubleSliderSetting cps;
     private TickSetting disableOnTp, disableWhenFlying, mouseDown, onlySurvival, fixMovement;
-    private TickSetting randomizeRotation, smoothRotation, autoBlock;
+    private TickSetting randomizeRotation, smoothRotation, autoBlock, targetRing;
     private SliderSetting attackTickDelay;
     private ComboSetting blockMode;
 
@@ -69,18 +69,19 @@ public class KillAura extends Module {
         super("KillAura", ModuleCategory.combat);
         this.registerSetting(new DescriptionSetting("Set targets in Client->Targets"));
         this.registerSetting(reach = new SliderSetting("Reach", 4.0, 3.0, 6.0, 0.05));
-        this.registerSetting(rotationSpeed = new SliderSetting("Rotation speed", 80, 10, 300, 1));
+        this.registerSetting(rotationSpeed = new SliderSetting("Rot speed", 80, 10, 300, 1));
         this.registerSetting(cps = new DoubleSliderSetting("CPS", 10, 14, 1, 20, 0.5));
-        this.registerSetting(attackTickDelay = new SliderSetting("Min ticks between hits", 1, 0, 5, 1));
-        this.registerSetting(onlySurvival = new TickSetting("Only survival", true));
-        this.registerSetting(disableOnTp = new TickSetting("Disable after TP", true));
-        this.registerSetting(disableWhenFlying = new TickSetting("Disable when flying", true));
-        this.registerSetting(mouseDown = new TickSetting("Mouse down", false));
-        this.registerSetting(fixMovement = new TickSetting("Movement fix", true));
-        this.registerSetting(smoothRotation = new TickSetting("Smooth rotation", true));
-        this.registerSetting(randomizeRotation = new TickSetting("Randomize rotation", true));
+        this.registerSetting(attackTickDelay = new SliderSetting("Min ticks", 1, 0, 5, 1));
+        this.registerSetting(onlySurvival = new TickSetting("Survival only", true));
+        this.registerSetting(disableOnTp = new TickSetting("Off on TP", true));
+        this.registerSetting(disableWhenFlying = new TickSetting("Off flying", true));
+        this.registerSetting(mouseDown = new TickSetting("Hold LMB", false));
+        this.registerSetting(fixMovement = new TickSetting("Move fix", true));
+        this.registerSetting(smoothRotation = new TickSetting("Smooth rot", true));
+        this.registerSetting(randomizeRotation = new TickSetting("Rand rot", true));
         this.registerSetting(autoBlock = new TickSetting("Auto block", false));
-        this.registerSetting(blockMode = new ComboSetting("Block mode", BlockMode.NONE));
+        this.registerSetting(blockMode = new ComboSetting("Block", BlockMode.NONE));
+        this.registerSetting(targetRing = new TickSetting("Target ring", true));
     }
 
     @Override
@@ -243,7 +244,8 @@ public class KillAura extends Module {
 
     @Subscribe
     public void renderWorldLast(ForgeEvent fe) {
-        if (fe.getEvent() instanceof RenderWorldLastEvent && target != null) {
+        if (fe.getEvent() instanceof RenderWorldLastEvent && target != null
+                && targetRing.isToggled()) {
             int color = GuiModule.getThemeColor(0);
             Utils.HUD.drawRingAroundEntity(target, color, 0.6D, 0.05D, 2.5F);
         }
@@ -267,11 +269,11 @@ public class KillAura extends Module {
         if (leftUpTime > 0L && leftDownTime > 0L) {
             if (System.currentTimeMillis() > leftUpTime && leftDown) {
                 if (mc.thePlayer.isUsingItem()) mc.thePlayer.stopUsingItem();
-                mc.thePlayer.swingItem();
 
                 if (ThreadLocalRandom.current().nextInt(100) >= 3
                         && mc.thePlayer.getDistanceToEntity(target) <= reach.getInput()) {
                     mc.playerController.attackEntity(mc.thePlayer, target);
+                    mc.thePlayer.swingItem();
                 }
                 ticksSinceAttack = 0;
                 genLeftTimings();

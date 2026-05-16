@@ -19,7 +19,7 @@ public class Boost extends Module {
         super("Boost", ModuleCategory.movement);
         this.registerSetting(c = new DescriptionSetting("20 ticks are in 1 second"));
         this.registerSetting(a = new SliderSetting("Multiplier", 2.0D, 1.0D, 3.0D, 0.05D));
-        this.registerSetting(b = new SliderSetting("Time (ticks)", 15.0D, 1.0D, 80.0D, 1.0D));
+        this.registerSetting(b = new SliderSetting("Ticks", 15.0D, 1.0D, 80.0D, 1.0D));
     }
 
     public void onEnable() {

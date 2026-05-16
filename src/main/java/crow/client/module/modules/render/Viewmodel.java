@@ -21,9 +21,9 @@ public class Viewmodel extends Module {
         this.registerSetting(translateX = new SliderSetting("X", 0.0D, -2.0D, 2.0D, 0.01D));
         this.registerSetting(translateY = new SliderSetting("Y", 0.0D, -2.0D, 2.0D, 0.01D));
         this.registerSetting(translateZ = new SliderSetting("Z", 0.0D, -2.0D, 2.0D, 0.01D));
-        this.registerSetting(rotateX = new SliderSetting("Rotate X", 0.0D, -180.0D, 180.0D, 1.0D));
-        this.registerSetting(rotateY = new SliderSetting("Rotate Y", 0.0D, -180.0D, 180.0D, 1.0D));
-        this.registerSetting(rotateZ = new SliderSetting("Rotate Z", 0.0D, -180.0D, 180.0D, 1.0D));
+        this.registerSetting(rotateX = new SliderSetting("Rot X", 0.0D, -180.0D, 180.0D, 1.0D));
+        this.registerSetting(rotateY = new SliderSetting("Rot Y", 0.0D, -180.0D, 180.0D, 1.0D));
+        this.registerSetting(rotateZ = new SliderSetting("Rot Z", 0.0D, -180.0D, 180.0D, 1.0D));
         this.registerSetting(scale = new SliderSetting("Scale", 1.0D, 0.1D, 2.5D, 0.01D));
     }
 

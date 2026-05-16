@@ -44,15 +44,15 @@ public class BlockHit extends Module {
 
         this.registerSetting(mode = new ComboSetting<>("Mode", Mode.Auto));
         this.registerSetting(weaponOnly = new TickSetting("Sword only", true));
-        this.registerSetting(onlyPlayers = new TickSetting("Only combo players", true));
-        this.registerSetting(onlyForward = new TickSetting("Only blockhit when walking forward", false));
-        this.registerSetting(waitMs = new DoubleSliderSetting("Block hold time (MS)", 30, 40, 1, 300, 1));
-        this.registerSetting(actionMs = new DoubleSliderSetting("Block after ... ms", 20, 30, 1, 300, 1));
-        this.registerSetting(hitPer = new DoubleSliderSetting("Once every ... hits", 1, 1, 1, 10, 1));
+        this.registerSetting(onlyPlayers = new TickSetting("Players only", true));
+        this.registerSetting(onlyForward = new TickSetting("Forward only", false));
+        this.registerSetting(waitMs = new DoubleSliderSetting("Hold time", 30, 40, 1, 300, 1));
+        this.registerSetting(actionMs = new DoubleSliderSetting("After ms", 20, 30, 1, 300, 1));
+        this.registerSetting(hitPer = new DoubleSliderSetting("Every N hits", 1, 1, 1, 10, 1));
         this.registerSetting(chance = new SliderSetting("Chance %", 100, 0, 100, 1));
         this.registerSetting(range = new SliderSetting("Range", 3, 1, 6, 0.05));
-        this.registerSetting(predictRange = new SliderSetting("Predict range", 3.5, 1, 6, 0.05));
-        this.registerSetting(predictHoldMs = new DoubleSliderSetting("Predict hold (MS)", 80, 140, 30, 400, 1));
+        this.registerSetting(predictRange = new SliderSetting("Pred range", 3.5, 1, 6, 0.05));
+        this.registerSetting(predictHoldMs = new DoubleSliderSetting("Pred hold", 80, 140, 30, 400, 1));
     }
 
     @Override

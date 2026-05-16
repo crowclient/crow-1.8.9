@@ -18,8 +18,8 @@ public class KeepSprint extends Module {
         this.registerSetting(a = new DescriptionSetting("Default is 40% motion reduction"));
         this.registerSetting(a2 = new DescriptionSetting("and stopping sprint."));
         this.registerSetting(b = new SliderSetting("Slow %", 40.0D, 0.0D, 100.0D, 1.0D));
-        this.registerSetting(c = new TickSetting("Only reduce reach hits", false));
-        this.registerSetting(sprint = new TickSetting("Stop Sprint", true));
+        this.registerSetting(c = new TickSetting("Reach only", false));
+        this.registerSetting(sprint = new TickSetting("Stop sprint", true));
     }
 
     public static void sl(Entity en) {

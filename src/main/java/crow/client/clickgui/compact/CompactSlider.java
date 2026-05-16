@@ -30,8 +30,21 @@ public class CompactSlider {
     }
 
     public void draw(int mouseX, int mouseY, CompactPalette palette) {
-        int valueWidth = (int) FontUtil.normal.getStringWidth(String.valueOf(setting.getInput()));
-        int trackWidth = Math.max(80, w - valueWidth - 16);
+        // Reserve the value-text area using the WORST-CASE text width of the
+        // slider's range (max of min/max text widths). Previously this used
+        // the CURRENT value's text width, which shifted as the user dragged
+        // — the value changed, the value text width changed, trackWidth
+        // changed, and (mouseX - x) / trackWidth produced a different
+        // percent on the same mouse position from one frame to the next.
+        // That's the "slider math broken" feel: dragging to a mouse pixel
+        // didn't reliably land you on the same value. Reserving the worst
+        // case keeps trackWidth stable across the entire drag.
+        int valueAreaWidth = Math.max(
+                (int) FontUtil.normal.getStringWidth(String.valueOf(setting.getMin())),
+                (int) FontUtil.normal.getStringWidth(String.valueOf(setting.getMax())));
+        int currentValueWidth = (int) FontUtil.normal.getStringWidth(String.valueOf(setting.getInput()));
+        valueAreaWidth = Math.max(valueAreaWidth, currentValueWidth);
+        int trackWidth = Math.max(80, w - valueAreaWidth - 16);
 
         if (dragging) {
             float p = Math.max(0.0F, Math.min(1.0F, (mouseX - x) / (float) trackWidth));
@@ -56,7 +69,7 @@ public class CompactSlider {
 
         FontUtil.semiBold.drawSmoothString(setting.getName(), x, y + 1, palette.titleText);
         String value = String.valueOf(setting.getInput());
-        FontUtil.normal.drawSmoothString(value, x + w - valueWidth, y + 1, palette.titleText);
+        FontUtil.normal.drawSmoothString(value, x + w - currentValueWidth, y + 1, palette.titleText);
 
         int barY = y + 15;
         int barH = 6;

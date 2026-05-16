@@ -67,14 +67,14 @@ public class ChestStealer extends Module {
 
     public ChestStealer() {
         super("ChestStealer", ModuleCategory.player);
-        this.registerSetting(stealMode = new ComboSetting("Steal Mode", StealMode.Smart));
-        this.registerSetting(startDelay = new DoubleSliderSetting("Start delay (ms)", 80, 200, 0, 500, 1));
-        this.registerSetting(stealDelay = new DoubleSliderSetting("Steal delay (ms)", 50, 150, 0, 500, 1));
-        this.registerSetting(closeDelay = new DoubleSliderSetting("Close delay (ms)", 50, 200, 0, 500, 1));
+        this.registerSetting(stealMode = new ComboSetting("Steal mode", StealMode.Smart));
+        this.registerSetting(startDelay = new DoubleSliderSetting("Start delay", 80, 200, 0, 500, 1));
+        this.registerSetting(stealDelay = new DoubleSliderSetting("Steal delay", 50, 150, 0, 500, 1));
+        this.registerSetting(closeDelay = new DoubleSliderSetting("Close delay", 50, 200, 0, 500, 1));
         this.registerSetting(autoClose = new TickSetting("Auto close", true));
-        this.registerSetting(smartStealer = new TickSetting("Smart steal (useful only)", true));
-        this.registerSetting(ignoreTrash = new TickSetting("Ignore trash", true));
-        this.registerSetting(nameFilter = new TickSetting("Ignore named chests", false));
+        this.registerSetting(smartStealer = new TickSetting("Smart steal", true));
+        this.registerSetting(ignoreTrash = new TickSetting("No trash", true));
+        this.registerSetting(nameFilter = new TickSetting("Skip named", false));
         this.registerSetting(onlyHotbar = new TickSetting("Hotbar only", false));
         this.registerSetting(maxItems = new SliderSetting("Max items", 0, 0, 54, 1));
     }

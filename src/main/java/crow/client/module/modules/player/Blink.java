@@ -38,10 +38,10 @@ public class Blink extends Module {
         super("Blink", ModuleCategory.movement);
         this.withDescription("Queues outgoing packets to simulate lag. Server sees you frozen in place.");
         this.registerSetting(pulse = new TickSetting("Pulse", false));
-        this.registerSetting(pulseDelay = new SliderSetting("Pulse delay (ms)", 500, 100, 2000, 50));
-        this.registerSetting(maxDuration = new SliderSetting("Max duration (s)", 10.0, 2.0, 30.0, 0.5));
+        this.registerSetting(pulseDelay = new SliderSetting("Pulse delay", 500, 100, 2000, 50));
+        this.registerSetting(maxDuration = new SliderSetting("Max duration", 10.0, 2.0, 30.0, 0.5));
         this.registerSetting(showClone = new TickSetting("Show clone", true));
-        this.registerSetting(autoReleaseOnTeleport = new TickSetting("Release on S08 teleport", true));
+        this.registerSetting(autoReleaseOnTeleport = new TickSetting("Off on TP", true));
         this.registerSetting(queuedPacketsDesc = new DescriptionSetting("Queued: 0"));
     }
 

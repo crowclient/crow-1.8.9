@@ -58,27 +58,27 @@ public class ArrayListMod extends Module {
 
     public ArrayListMod() {
         super("ArrayList", ModuleCategory.render);
-        this.registerSetting(dropShadow = new TickSetting("Drop shadow", true));
-        this.registerSetting(customFont = new TickSetting("Custom Font", true));
-        this.registerSetting(colorMode = new ComboSetting("Text Color", ColorModes.THEME));
-        this.registerSetting(customColor = new RGBSetting("Custom Color", 170, 68, 221));
+        this.registerSetting(dropShadow = new TickSetting("Shadow", true));
+        this.registerSetting(customFont = new TickSetting("Custom font", true));
+        this.registerSetting(colorMode = new ComboSetting("Text color", ColorModes.THEME));
+        this.registerSetting(customColor = new RGBSetting("Custom color", 170, 68, 221));
         customColor.visibleWhen(() -> colorMode != null && colorMode.getMode() == ColorModes.CUSTOM);
-        this.registerSetting(rainbowSpeed = new SliderSetting("Rainbow Speed", 2, 1, 10, 1));
+        this.registerSetting(rainbowSpeed = new SliderSetting("Rainbow speed", 2, 1, 10, 1));
         rainbowSpeed.visibleWhen(() -> colorMode != null && (colorMode.getMode() == ColorModes.RAINBOW || colorMode.getMode() == ColorModes.ASTOLFO));
         this.registerSetting(background = new TickSetting("Background", true));
-        this.registerSetting(hideRenderModules = new TickSetting("Hide Render Modules", false));
-        this.registerSetting(bgColor = new RGBSetting("BG Color", 13, 13, 26));
+        this.registerSetting(hideRenderModules = new TickSetting("Hide render", false));
+        this.registerSetting(bgColor = new RGBSetting("BG color", 13, 13, 26));
         bgColor.visibleWhen(() -> background != null && background.isToggled());
-        this.registerSetting(bgOpacity = new SliderSetting("BG Opacity", 180, 0, 255, 1));
+        this.registerSetting(bgOpacity = new SliderSetting("BG opacity", 180, 0, 255, 1));
         bgOpacity.visibleWhen(() -> background != null && background.isToggled());
-        this.registerSetting(sideLine = new TickSetting("Side Line", true));
-        this.registerSetting(showSubtext = new TickSetting("Show Subtext", false));
-        this.registerSetting(subtextDivider = new ComboSetting("Subtext Divider", DividerStyle.DASH));
+        this.registerSetting(sideLine = new TickSetting("Side line", true));
+        this.registerSetting(showSubtext = new TickSetting("Subtext", false));
+        this.registerSetting(subtextDivider = new ComboSetting("Divider", DividerStyle.DASH));
         subtextDivider.visibleWhen(() -> showSubtext != null && showSubtext.isToggled());
-        this.registerSetting(textMode = new ComboSetting("Text Mode", TextModes.NORMAL));
-        this.registerSetting(lineColorMode = new ComboSetting("Line Color", LineColorModes.SAME_AS_TEXT));
+        this.registerSetting(textMode = new ComboSetting("Text mode", TextModes.NORMAL));
+        this.registerSetting(lineColorMode = new ComboSetting("Line color", LineColorModes.SAME_AS_TEXT));
         lineColorMode.visibleWhen(() -> sideLine != null && sideLine.isToggled());
-        this.registerSetting(lineWidth = new SliderSetting("Line Width", 1, 1, 5, 1));
+        this.registerSetting(lineWidth = new SliderSetting("Line width", 1, 1, 5, 1));
         lineWidth.visibleWhen(() -> sideLine != null && sideLine.isToggled());
     }
 

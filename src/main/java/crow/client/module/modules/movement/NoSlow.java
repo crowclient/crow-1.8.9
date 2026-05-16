@@ -17,7 +17,7 @@ public class NoSlow extends Module {
         this.registerSetting(new DescriptionSetting("Default is 80% motion reduction."));
         this.registerSetting(new DescriptionSetting("Use 'No Reset' on Hypixel."));
         this.registerSetting(slowPercent = new SliderSetting("Slow %", 80.0D, 0.0D, 80.0D, 1.0D));
-        this.registerSetting(noReset = new TickSetting("No Reset", false));
+        this.registerSetting(noReset = new TickSetting("No reset", false));
     }
 
     @Subscribe

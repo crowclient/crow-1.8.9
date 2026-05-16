@@ -29,8 +29,14 @@ public abstract class MixinEntityPlayer extends EntityLivingBase {
         super(p_i1594_1_);
     }
 
-    @Shadow
-    public abstract ItemStack getHeldItem();
+    // `getHeldItem` is inherited from EntityLivingBase (which our mixin
+    // extends), so re-declaring it as a @Shadow here makes Mixin's
+    // pre-processor look it up as a *declared* method on EntityPlayer.
+    // In MC 1.8.9 EntityPlayer doesn't redeclare getHeldItem (only
+    // inherits it), so the lookup fails → InvalidMixinException at
+    // class-load time. Dropping the @Shadow lets the Java compiler
+    // resolve the call via inheritance from EntityLivingBase, which is
+    // what we actually want at the bytecode level.
 
     @Shadow
     public abstract void onCriticalHit(Entity p_onCriticalHit_1_);

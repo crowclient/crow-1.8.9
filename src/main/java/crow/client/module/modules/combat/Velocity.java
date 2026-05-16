@@ -31,15 +31,15 @@ public class Velocity extends Module {
         this.registerSetting(horizontal = new SliderSetting("Horizontal", 100.0D, -100.0D, 100.0D, 1.0D));
         this.registerSetting(vertical = new SliderSetting("Vertical", 100.0D, -100.0D, 100.0D, 1.0D));
         this.registerSetting(chance = new SliderSetting("Chance", 100.0D, 0.0D, 100.0D, 1.0D));
-        this.registerSetting(delay = new SliderSetting("Reaction Delay", 0.0D, 0.0D, 9.0D, 1.0D));
-        this.registerSetting(onlyWhileTargeting = new TickSetting("Only while targeting", false));
-        this.registerSetting(disableHoldingS = new TickSetting("Disable while holding S", false));
-        this.registerSetting(diffProjectiles = new TickSetting("Different velo for projectiles", false));
-        this.registerSetting(projMode = new ComboSetting("Projectiles Mode", ProjectileMode.Distance));
-        this.registerSetting(projHorizontal = new SliderSetting("Proj Horizontal", 90.0D, -100.0D, 100.0D, 1.0D));
-        this.registerSetting(projVertical = new SliderSetting("Proj Vertical", 100.0D, -100.0D, 100.0D, 1.0D));
-        this.registerSetting(projChance = new SliderSetting("Proj Chance", 100.0D, 0.0D, 100.0D, 1.0D));
-        this.registerSetting(projDistance = new SliderSetting("Proj Distance", 3D, 0.0D, 20D, 0.1D));
+        this.registerSetting(delay = new SliderSetting("React delay", 0.0D, 0.0D, 9.0D, 1.0D));
+        this.registerSetting(onlyWhileTargeting = new TickSetting("Targeting only", false));
+        this.registerSetting(disableHoldingS = new TickSetting("Off on S", false));
+        this.registerSetting(diffProjectiles = new TickSetting("Proj diff", false));
+        this.registerSetting(projMode = new ComboSetting("Proj mode", ProjectileMode.Distance));
+        this.registerSetting(projHorizontal = new SliderSetting("Proj H", 90.0D, -100.0D, 100.0D, 1.0D));
+        this.registerSetting(projVertical = new SliderSetting("Proj V", 100.0D, -100.0D, 100.0D, 1.0D));
+        this.registerSetting(projChance = new SliderSetting("Proj chance", 100.0D, 0.0D, 100.0D, 1.0D));
+        this.registerSetting(projDistance = new SliderSetting("Proj dist", 3D, 0.0D, 20D, 0.1D));
     }
 
     @Override

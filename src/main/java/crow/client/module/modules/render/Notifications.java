@@ -22,7 +22,7 @@ public class Notifications extends Module {
         this.registerSetting(position = new ComboSetting<>("Position", Position.TopCenter));
         this.registerSetting(duration = new SliderSetting("Duration", 1.0D, 0.5D, 5.0D, 0.5D));
         this.registerSetting(blur = new TickSetting("Blur", false));
-        this.registerSetting(accentBar = new TickSetting("Accent Bar", true));
+        this.registerSetting(accentBar = new TickSetting("Accent bar", true));
         accentBar.visibleWhen(() -> {
             Style s = style != null ? (Style) style.getMode() : Style.Modern;
             return s == Style.Classic;

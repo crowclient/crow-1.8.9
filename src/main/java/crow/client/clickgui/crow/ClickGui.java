@@ -14,7 +14,6 @@ import crow.client.clickgui.crow.components.CategoryComponent;
 import crow.client.clickgui.crow.components.HotbarLayoutComponent;
 import crow.client.clickgui.crow.components.SettingComponent;
 import crow.client.clickgui.crow.components.TextInputComponent;
-import crow.client.module.modules.render.MusicWidget;
 import crow.client.main.Crow;
 import crow.client.module.Module.ModuleCategory;
 import crow.client.module.modules.client.GuiModule;
@@ -214,22 +213,11 @@ public class ClickGui extends GuiScreen {
             }
         }
 
-        MusicWidget spotify = MusicWidget.getInstance();
-        if (spotify != null && spotify.isEnabled()) {
-            GL11.glDisable(GL11.GL_SCISSOR_TEST);
-            spotify.drawInGui(x, y);
-        }
-
         GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
     }
 
     @Override
     public void mouseClicked(int x, int y, int mouseButton) throws IOException {
-
-        MusicWidget spotify = MusicWidget.getInstance();
-        if (spotify != null && spotify.isEnabled() && spotify.handleGuiClick(x, y, mouseButton)) {
-            return;
-        }
         for (CategoryComponent cat : visibleCategories) {
             if (cat.mouseDown(x, y, mouseButton)) {
                 lastCategory = cat;
@@ -240,8 +228,6 @@ public class ClickGui extends GuiScreen {
 
     @Override
     public void mouseReleased(int x, int y, int mouseButton) {
-        MusicWidget spotify = MusicWidget.getInstance();
-        if (spotify != null) spotify.handleGuiRelease();
         for (CategoryComponent cat : visibleCategories) {
             cat.mouseReleased(x, y, mouseButton);
         }

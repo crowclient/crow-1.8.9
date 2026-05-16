@@ -58,11 +58,11 @@ public class LeftClicker extends Module {
 
     public LeftClicker() {
         super("Auto Clicker", ModuleCategory.combat);
-        this.registerSetting(leftCPS     = new DoubleSliderSetting("Left CPS", 9, 13, 1, 60, 0.5));
-        this.registerSetting(jitterLeft  = new SliderSetting("Jitter left", 0.0D, 0.0D, 3.0D, 0.1D));
+        this.registerSetting(leftCPS     = new DoubleSliderSetting("CPS", 9, 13, 1, 60, 0.5));
+        this.registerSetting(jitterLeft  = new SliderSetting("Jitter", 0.0D, 0.0D, 3.0D, 0.1D));
         this.registerSetting(weaponOnly  = new TickSetting("Weapon only", false));
         this.registerSetting(breakBlocks = new TickSetting("Break blocks", false));
-        this.registerSetting(jitterSound = new TickSetting("Jitter click sound", false));
+        this.registerSetting(jitterSound = new TickSetting("Jitter sound", false));
         autoClickerEnabled = false;
     }
 

@@ -28,8 +28,8 @@ public class NameHider extends Module {
         super("Name Hider", ModuleCategory.other);
         instance = this;
         this.withDescription("Replaces names client-side for privacy while streaming or recording.");
-        this.registerSetting(customName = new TextSetting("Custom Name", "You", "Enter replacement name"));
-        this.registerSetting(randomizeOthers = new TickSetting("Randomize other names", true));
+        this.registerSetting(customName = new TextSetting("Custom name", "You", "Enter replacement name"));
+        this.registerSetting(randomizeOthers = new TickSetting("Rand others", true));
     }
 
     @Override

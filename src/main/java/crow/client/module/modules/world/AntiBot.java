@@ -26,10 +26,10 @@ public class AntiBot extends Module {
         super("AntiBot", ModuleCategory.world);
         withEnabled(true);
 
-        this.registerSetting(waitTicks = new TickSetting("Wait 80 ticks", false));
-        this.registerSetting(dead = new TickSetting("Remove dead", true));
-        this.registerSetting(checkYaw = new TickSetting("Check bot Yaw", true));
-        this.registerSetting(yawTolerance = new SliderSetting("Yaw Tolerance", 1.0D, 0.1D, 5.0D, 0.1D));
+        this.registerSetting(waitTicks = new TickSetting("Wait 80t", false));
+        this.registerSetting(dead = new TickSetting("Hide dead", true));
+        this.registerSetting(checkYaw = new TickSetting("Check yaw", true));
+        this.registerSetting(yawTolerance = new SliderSetting("Yaw tol", 1.0D, 0.1D, 5.0D, 0.1D));
     }
 
     @Override

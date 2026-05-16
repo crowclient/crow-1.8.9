@@ -28,8 +28,8 @@ public class UpdateCheck extends Module {
         super("Update", ModuleCategory.client);
 
         this.registerSetting(howToUse = new DescriptionSetting(Utils.Java.capitalizeWord("command") + ": update"));
-        this.registerSetting(copyToClipboard = new TickSetting("Copy to clipboard", true));
-        this.registerSetting(openLink = new TickSetting("Open dl in browser", true));
+        this.registerSetting(copyToClipboard = new TickSetting("Copy", true));
+        this.registerSetting(openLink = new TickSetting("Open in browser", true));
 
         executor = Executors.newFixedThreadPool(1);
         task = () -> {

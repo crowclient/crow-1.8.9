@@ -33,10 +33,10 @@ public class CustomTitle extends Module {
     public CustomTitle() {
         super("CustomTitle", ModuleCategory.render);
         instance = this;
-        this.registerSetting(titleScale     = new SliderSetting("Title Scale", 1.0D, 0.5D, 2.0D, 0.05D));
-        this.registerSetting(subtitleScale  = new SliderSetting("Subtitle Scale", 1.0D, 0.5D, 2.0D, 0.05D));
-        this.registerSetting(yOffset        = new SliderSetting("Y Offset", 0, -100, 100, 1));
-        this.registerSetting(dropShadow     = new TickSetting("Drop Shadow", true));
+        this.registerSetting(titleScale     = new SliderSetting("Title scale", 1.0D, 0.5D, 2.0D, 0.05D));
+        this.registerSetting(subtitleScale  = new SliderSetting("Sub scale", 1.0D, 0.5D, 2.0D, 0.05D));
+        this.registerSetting(yOffset        = new SliderSetting("Y offset", 0, -100, 100, 1));
+        this.registerSetting(dropShadow     = new TickSetting("Shadow", true));
     }
 
     public static boolean shouldReplaceVanilla() {

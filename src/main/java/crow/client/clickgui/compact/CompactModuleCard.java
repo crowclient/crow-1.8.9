@@ -28,9 +28,9 @@ public class CompactModuleCard {
     private static final int PILL_HEIGHT = 18;
     private static final int PILL_MARGIN = 12;
     private static final int SETTINGS_INDENT = 12;
-    private static final int SETTING_GAP = 6;
-    private static final int SETTING_TOP_PAD = 10;
-    private static final int SETTING_BOT_PAD = 10;
+    private static final int SETTING_GAP = 4;
+    private static final int SETTING_TOP_PAD = 8;
+    private static final int SETTING_BOT_PAD = 8;
     private static final int CARD_RADIUS = 10;
     private static final ResourceLocation DROPDOWN_ARROW =
             RenderUtils.getResourcePath("/assets/crow/crowclickgui/arrow_down.png");

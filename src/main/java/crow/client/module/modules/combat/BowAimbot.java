@@ -49,12 +49,12 @@ public class BowAimbot extends Module {
         this.registerSetting(lerpSpeed     = new SliderSetting("Lerp speed",    8.0D,  1.0D,  20.0D,  0.5D));
         this.registerSetting(fov           = new SliderSetting("FOV",           90.0D, 15.0D, 180.0D, 1.0D));
         this.registerSetting(distance      = new SliderSetting("Distance",      64.0D, 5.0D,  150.0D, 1.0D));
-        this.registerSetting(pitchOffset   = new SliderSetting("Pitch offset",  0.0D, -15.0D, 15.0D,  0.5D));
+        this.registerSetting(pitchOffset   = new SliderSetting("Pitch off",  0.0D, -15.0D, 15.0D,  0.5D));
         this.registerSetting(minCharge     = new SliderSetting("Min charge %",  0.0D,  0.0D,  90.0D,  5.0D));
         this.registerSetting(prediction    = new SliderSetting("Prediction",    1.0D,  0.0D,  2.0D,   0.1D));
-        this.registerSetting(randomization = new SliderSetting("Randomization", 1.0D,  0.0D,  5.0D,   0.5D));
-        this.registerSetting(requireCharge = new TickSetting("Require charge",  true));
-        this.registerSetting(gravityComp   = new TickSetting("Gravity comp",    true));
+        this.registerSetting(randomization = new SliderSetting("Random", 1.0D,  0.0D,  5.0D,   0.5D));
+        this.registerSetting(requireCharge = new TickSetting("Need charge",  true));
+        this.registerSetting(gravityComp   = new TickSetting("Gravity",    true));
         this.registerSetting(wallCheck     = new TickSetting("Wall check",      true));
         this.registerSetting(aimPitch      = new TickSetting("Aim pitch",       true));
     }

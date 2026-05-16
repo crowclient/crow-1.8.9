@@ -32,17 +32,17 @@ public class Targets extends Module {
     public Targets() {
         super("Targets", ModuleCategory.client);
         this.registerSettings(
-                        players = new TickSetting("Target players", true),
-                        mobs = new TickSetting("Target mobs", false),
-                        friends = new TickSetting("Target friends", false),
-                        teams = new TickSetting("Target teammates", false),
-                        invis = new TickSetting("Target invis", false),
-                        bots = new TickSetting("Target bots", false),
-                        naked = new TickSetting("Target naked", false),
+                        players = new TickSetting("Players", true),
+                        mobs = new TickSetting("Mobs", false),
+                        friends = new TickSetting("Friends", false),
+                        teams = new TickSetting("Teammates", false),
+                        invis = new TickSetting("Invis", false),
+                        bots = new TickSetting("Bots", false),
+                        naked = new TickSetting("Naked", false),
                         fov = new SliderSetting("Fov", 30, 0, 360, 1),
                         distance = new SliderSetting("Distance", 3.5, 0, 10, 0.1),
-                        sortMode = new ComboSetting("Sort mode", SortMode.Distance),
-                        lockDist = new SliderSetting("Lock distance", 4, 0, 10, 0.1)
+                        sortMode = new ComboSetting("Sort", SortMode.Distance),
+                        lockDist = new SliderSetting("Lock dist", 4, 0, 10, 0.1)
                         );
         this.withEnabled(true);
     }

@@ -74,8 +74,8 @@ public class AutoGG extends Module {
         super("AutoGG", ModuleCategory.other);
         this.withDescription("Sends GG in chat when a game ends.");
         this.registerSetting(message = new ComboSetting<>("Message", GGMessage.gg));
-        this.registerSetting(delay = new SliderSetting("Delay (ms)", 500, 0, 3000, 50));
-        this.registerSetting(randomDelay = new TickSetting("Random delay", true));
+        this.registerSetting(delay = new SliderSetting("Delay", 500, 0, 3000, 50));
+        this.registerSetting(randomDelay = new TickSetting("Rand delay", true));
         randomDelay.visibleWhen(() -> delay != null && delay.getInput() > 0);
     }
 

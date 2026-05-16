@@ -36,13 +36,13 @@ public class Logo extends Module {
 
     public Logo() {
         super("Logo", ModuleCategory.render);
-        this.registerSetting(showIcon = new TickSetting("Show Icon", true));
-        this.registerSetting(showText = new TickSetting("Show Text", true));
+        this.registerSetting(showIcon = new TickSetting("Icon", true));
+        this.registerSetting(showText = new TickSetting("Text", true));
         this.registerSetting(posX = new SliderSetting("X", 6, 0, 4000, 1));
         this.registerSetting(posY = new SliderSetting("Y", 6, 0, 2000, 1));
         this.registerSetting(logoScale = new SliderSetting("Scale", 1.0D, 0.5D, 2.0D, 0.05D));
-        this.registerSetting(accentLine = new TickSetting("Accent Line", true));
-        this.registerSetting(showVersion = new TickSetting("Show Version", true));
+        this.registerSetting(accentLine = new TickSetting("Accent line", true));
+        this.registerSetting(showVersion = new TickSetting("Version", true));
         this.registerSetting(background = new TickSetting("Background", true));
     }
 

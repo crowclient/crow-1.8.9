@@ -58,13 +58,13 @@ public class Reach extends Module {
         // Defaults bumped from 3.1/3.3 → 5.0/6.0 so the module actually
         // delivers extended reach out of the box; the old defaults gave you
         // ~0.1 blocks of reach above vanilla.
-        this.registerSetting(reach = new DoubleSliderSetting("Reach (Blocks)", 5.0, 6.0, 3, 6, 0.05));
+        this.registerSetting(reach = new DoubleSliderSetting("Reach", 5.0, 6.0, 3, 6, 0.05));
         this.registerSetting(chance = new SliderSetting("Chance %", 100, 0, 100, 1));
         this.registerSetting(weapon_only = new TickSetting("Weapon only", false));
         this.registerSetting(moving_only = new TickSetting("Moving only", false));
         this.registerSetting(sprint_only = new TickSetting("Sprint only", false));
-        this.registerSetting(showReachDisplay = new TickSetting("Show Reach Display", true));
-        this.registerSetting(displayDuration = new SliderSetting("Display Duration (ms)", 1500, 500, 5000, 100));
+        this.registerSetting(showReachDisplay = new TickSetting("Show reach", true));
+        this.registerSetting(displayDuration = new SliderSetting("Show time", 1500, 500, 5000, 100));
         displayDuration.visibleWhen(() -> showReachDisplay != null && showReachDisplay.isToggled());
     }
 

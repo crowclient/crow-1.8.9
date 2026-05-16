@@ -76,13 +76,13 @@ public class InvManager extends Module {
 
     public InvManager() {
         super("InvManager", ModuleCategory.player);
-        this.registerSetting(startDelay = new DoubleSliderSetting("Start delay (ms)", 100, 250, 0, 500, 1));
-        this.registerSetting(actionDelay = new DoubleSliderSetting("Action delay (ms)", 50, 150, 0, 500, 1));
-        this.registerSetting(autoSort = new TickSetting("Auto sort hotbar", true));
+        this.registerSetting(startDelay = new DoubleSliderSetting("Start delay", 100, 250, 0, 500, 1));
+        this.registerSetting(actionDelay = new DoubleSliderSetting("Action delay", 50, 150, 0, 500, 1));
+        this.registerSetting(autoSort = new TickSetting("Auto sort", true));
         this.registerSetting(dropTrash = new TickSetting("Drop trash", true));
-        this.registerSetting(combineDuplicates = new TickSetting("Combine stacks", true));
-        this.registerSetting(keepBestTool = new TickSetting("Keep best tools only", true));
-        this.registerSetting(hotbarLayout = new HotbarLayoutSetting("Hotbar Layout"));
+        this.registerSetting(combineDuplicates = new TickSetting("Stack", true));
+        this.registerSetting(keepBestTool = new TickSetting("Best only", true));
+        this.registerSetting(hotbarLayout = new HotbarLayoutSetting("Hotbar layout"));
     }
 
     @Override

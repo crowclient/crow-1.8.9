@@ -36,10 +36,10 @@ public class BlinkInfinite extends Module {
     public BlinkInfinite() {
         super("BlinkInfinite", ModuleCategory.movement);
         this.withDescription("Holds outgoing packets and drains them slowly (1 every N ticks). Queue grows unbounded — effectively infinite blink.");
-        this.registerSetting(ticksPerRelease = new SliderSetting("Ticks per release", 4, 1, 40, 1));
-        this.registerSetting(maxQueueSize = new SliderSetting("Max queue size", 2000, 100, 10000, 100));
+        this.registerSetting(ticksPerRelease = new SliderSetting("Release ticks", 4, 1, 40, 1));
+        this.registerSetting(maxQueueSize = new SliderSetting("Max queue", 2000, 100, 10000, 100));
         this.registerSetting(showClone = new TickSetting("Show clone", true));
-        this.registerSetting(autoReleaseOnTeleport = new TickSetting("Release on S08 teleport", true));
+        this.registerSetting(autoReleaseOnTeleport = new TickSetting("Off on TP", true));
         this.registerSetting(queuedPacketsDesc = new DescriptionSetting("Queued: 0"));
     }
 

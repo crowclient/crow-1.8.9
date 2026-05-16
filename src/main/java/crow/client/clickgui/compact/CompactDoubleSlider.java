@@ -31,8 +31,16 @@ public class CompactDoubleSlider {
 
     public void draw(int mouseX, int mouseY, CompactPalette palette) {
         String valueText = setting.getInputMin() + " - " + setting.getInputMax();
-        int valueWidth = (int) FontUtil.small.getStringWidth(valueText);
-        int trackWidth = Math.max(80, w - valueWidth - 16);
+        // Reserve trackWidth using the WORST-CASE displayed text (full range
+        // min - max). The currently-shown text may be shorter, but the
+        // reserved space stays constant during a drag so the drag math
+        // doesn't shift values out from under the cursor. See the same
+        // comment in CompactSlider for the full reasoning.
+        String widestText = setting.getMin() + " - " + setting.getMax();
+        int widestValueWidth = (int) FontUtil.small.getStringWidth(widestText);
+        int currentValueWidth = (int) FontUtil.small.getStringWidth(valueText);
+        int valueAreaWidth = Math.max(widestValueWidth, currentValueWidth);
+        int trackWidth = Math.max(80, w - valueAreaWidth - 16);
 
         if (dragging) {
             double value = screenToValue(mouseX, trackWidth);
@@ -73,7 +81,7 @@ public class CompactDoubleSlider {
         activeAnimation += ((dragging ? 1.0F : 0.0F) - activeAnimation) * 0.20F;
 
         FontUtil.semiBold.drawSmoothString(setting.getName(), x, y + 1, palette.titleText);
-        FontUtil.small.drawSmoothString(valueText, x + w - valueWidth, y + 2, palette.mutedText);
+        FontUtil.small.drawSmoothString(valueText, x + w - currentValueWidth, y + 2, palette.mutedText);
 
         int barY = y + 15;
         int barH = 6;
@@ -124,8 +132,14 @@ public class CompactDoubleSlider {
 
     public void mouseClicked(int mouseX, int mouseY, int button) {
         dragging = true;
-        int valueWidth = (int) FontUtil.small.getStringWidth(setting.getInputMin() + " - " + setting.getInputMax());
-        int trackWidth = Math.max(80, w - valueWidth - 16);
+        // Match the worst-case reservation used in draw() so click position
+        // maps to the same value space the user sees.
+        String widestText = setting.getMin() + " - " + setting.getMax();
+        int widestValueWidth = (int) FontUtil.small.getStringWidth(widestText);
+        int currentValueWidth = (int) FontUtil.small.getStringWidth(
+                setting.getInputMin() + " - " + setting.getInputMax());
+        int valueAreaWidth = Math.max(widestValueWidth, currentValueWidth);
+        int trackWidth = Math.max(80, w - valueAreaWidth - 16);
         float targetMin = (float) ((setting.getInputMin() - setting.getMin()) / (setting.getMax() - setting.getMin()));
         float targetMax = (float) ((setting.getInputMax() - setting.getMin()) / (setting.getMax() - setting.getMin()));
         int minX = x + (int) (trackWidth * targetMin);

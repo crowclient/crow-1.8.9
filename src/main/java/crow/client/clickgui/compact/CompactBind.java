@@ -47,7 +47,7 @@ public class CompactBind {
 
     public void mouseClicked(int mouseX, int mouseY, int button) {
         binding = !binding;
-        gui.setActiveBindCard(binding ? this : null);
+        if (gui != null) gui.setActiveBindCard(binding ? this : null);
     }
 
     public void mouseBind(int mouseButton) {
@@ -56,7 +56,7 @@ public class CompactBind {
         }
         mod.setbind(Module.MOUSE_BIND_OFFSET + mouseButton);
         binding = false;
-        gui.setActiveBindCard(null);
+        if (gui != null) gui.setActiveBindCard(null);
     }
 
     public void keyTyped(char typedChar, int keyCode) {
@@ -70,6 +70,6 @@ public class CompactBind {
             mod.setbind(keyCode);
         }
         binding = false;
-        gui.setActiveBindCard(null);
+        if (gui != null) gui.setActiveBindCard(null);
     }
 }

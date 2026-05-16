@@ -23,13 +23,13 @@ public class HUD extends Module {
         super("HUD", ModuleCategory.render);
         this.withDescription("Legacy HUD shell — settings only. The old arraylist renderer was removed; use ArrayListMod / Logo / Statistics instead.");
 
-        this.registerSetting(editPosition = new TickSetting("Edit position", false));
-        this.registerSetting(dropShadow = new TickSetting("Drop shadow", true));
+        this.registerSetting(editPosition = new TickSetting("Edit pos", false));
+        this.registerSetting(dropShadow = new TickSetting("Shadow", true));
         this.registerSetting(logo = new TickSetting("Logo", true));
-        this.registerSetting(enableBlur = new TickSetting("Enable Blur", false));
-        this.registerSetting(blurRadius = new SliderSetting("Blur Radius", 5, 1, 20, 1));
+        this.registerSetting(enableBlur = new TickSetting("Blur", false));
+        this.registerSetting(blurRadius = new SliderSetting("Blur radius", 5, 1, 20, 1));
         blurRadius.visibleWhen(() -> enableBlur != null && enableBlur.isToggled());
-        this.registerSetting(customChat = new TickSetting("Custom Chat", true));
+        this.registerSetting(customChat = new TickSetting("Custom chat", true));
 
         showedError = false;
         showInHud = false;

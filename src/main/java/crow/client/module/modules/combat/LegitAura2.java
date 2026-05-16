@@ -54,19 +54,19 @@ public class LegitAura2 extends Module {
     public LegitAura2() {
         super("Aura", ModuleCategory.combat);
         this.registerSetting(new DescriptionSetting(EnumChatFormatting.RED + "" + EnumChatFormatting.BOLD + "Does not work with patcher"));
-        this.registerSetting(reach = new SliderSetting("Reach (Blocks)", 3.3, 3, 6, 0.05));
-        this.registerSetting(rotationDistance = new SliderSetting("Rotation Range", 3.5, 3, 6, 0.05));
-        this.registerSetting(rotationSpeed = new SliderSetting("Rotation Speed", 150, 20, 360, 5));
+        this.registerSetting(reach = new SliderSetting("Reach", 3.3, 3, 6, 0.05));
+        this.registerSetting(rotationDistance = new SliderSetting("Rot range", 3.5, 3, 6, 0.05));
+        this.registerSetting(rotationSpeed = new SliderSetting("Rot speed", 150, 20, 360, 5));
         this.registerSetting(jitter = new SliderSetting("Jitter", 1.5, 0.0, 5.0, 0.1));
-        this.registerSetting(cps = new DoubleSliderSetting("Left CPS", 9, 13, 1, 60, 0.5));
+        this.registerSetting(cps = new DoubleSliderSetting("CPS", 9, 13, 1, 60, 0.5));
         this.registerSetting(fov = new SliderSetting("Fov", 30, 0, 360, 1));
-        this.registerSetting(onlySurvival = new TickSetting("Only Survival", true));
-        this.registerSetting(disableOnTp = new TickSetting("Disable after tp", true));
-        this.registerSetting(disableWhenFlying = new TickSetting("Disable when flying", true));
-        this.registerSetting(mouseDown = new TickSetting("Mouse Down", true));
-        this.registerSetting(fixMovement = new TickSetting("Movement Fix", true));
-        this.registerSetting(sortMode = new ComboSetting("Sort mode", SortMode.Distance));
-        this.registerSetting(blockMode = new ComboSetting("Block mode", BlockMode.NONE));
+        this.registerSetting(onlySurvival = new TickSetting("Survival only", true));
+        this.registerSetting(disableOnTp = new TickSetting("Off on TP", true));
+        this.registerSetting(disableWhenFlying = new TickSetting("Off flying", true));
+        this.registerSetting(mouseDown = new TickSetting("Hold LMB", true));
+        this.registerSetting(fixMovement = new TickSetting("Move fix", true));
+        this.registerSetting(sortMode = new ComboSetting("Sort", SortMode.Distance));
+        this.registerSetting(blockMode = new ComboSetting("Block", BlockMode.NONE));
     }
 
     @Override

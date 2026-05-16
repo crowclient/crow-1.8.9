@@ -8,7 +8,7 @@ public class VClip extends Module {
 
     public VClip() {
         super("VClip", ModuleCategory.movement);
-        this.registerSetting(a = new SliderSetting("Distace", 2.0D, -10.0D, 10.0D, 0.5D));
+        this.registerSetting(a = new SliderSetting("Distance", 2.0D, -10.0D, 10.0D, 0.5D));
     }
 
     public void onEnable() {

@@ -16,8 +16,8 @@ public class RecordingMode extends Module {
         this.registerSetting(new DescriptionSetting("Replaces GPU effects with"));
         this.registerSetting(new DescriptionSetting("lightweight fallbacks for OBS."));
         this.registerSetting(new DescriptionSetting("Use Window Capture in OBS."));
-        this.registerSetting(disableBlur = new TickSetting("Disable Blur", true));
-        this.registerSetting(disableStencil = new TickSetting("Disable Stencil", true));
+        this.registerSetting(disableBlur = new TickSetting("No blur", true));
+        this.registerSetting(disableStencil = new TickSetting("No stencil", true));
     }
 
     @Override

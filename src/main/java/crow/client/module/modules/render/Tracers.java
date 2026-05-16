@@ -27,12 +27,12 @@ public class Tracers extends Module {
 
     public Tracers() {
         super("Tracers", ModuleCategory.render);
-        this.registerSetting(showInvis = new TickSetting("Show Invisible", true));
-        this.registerSetting(lineWidth = new SliderSetting("Line Width", 1.0D, 1.0D, 5.0D, 1.0D));
+        this.registerSetting(showInvis = new TickSetting("Show invis", true));
+        this.registerSetting(lineWidth = new SliderSetting("Line width", 1.0D, 1.0D, 5.0D, 1.0D));
         this.registerSetting(distance = new SliderSetting("Distance", 1.0D, 1.0D, 512.0D, 1.0D));
         this.registerSetting(rgb = new RGBSetting("Color", 0, 255, 0));
         this.registerSetting(rainbow = new TickSetting("Rainbow", false));
-        this.registerSetting(redshift = new TickSetting("Redshift With Distance", false));
+        this.registerSetting(redshift = new TickSetting("Redshift", false));
     }
 
     @Override

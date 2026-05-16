@@ -21,7 +21,7 @@ public class InvMove extends Module {
     public InvMove() {
         super("InvMove", ModuleCategory.movement);
         registerSetting(ds = new DescriptionSetting("Does NOT work on Hypixel!"));
-        registerSetting(undetectable = new TickSetting("Only ClickGui", true));
+        registerSetting(undetectable = new TickSetting("ClickGui only", true));
         registerSetting(ds2 = new DescriptionSetting(EnumChatFormatting.GRAY + "Only ClickGui is fully undetectable!"));
     }
 

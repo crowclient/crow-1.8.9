@@ -16,8 +16,8 @@ public class Trajectories extends Module {
     public Trajectories() {
         super("Trajectories", ModuleCategory.hotkey);
 
-        this.registerSetting(preferSlot = new TickSetting("Prefer a slot", false));
-        this.registerSetting(hotbarSlotPreference = new SliderSetting("Prefer wich slot", 5, 1, 9, 1));
+        this.registerSetting(preferSlot = new TickSetting("Prefer slot", false));
+        this.registerSetting(hotbarSlotPreference = new SliderSetting("Slot", 5, 1, 9, 1));
     }
 
     @Override

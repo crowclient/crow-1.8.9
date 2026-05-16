@@ -51,11 +51,11 @@ public class AutoRod extends Module {
     public AutoRod() {
         super("AutoRod", ModuleCategory.combat);
         this.registerSetting(range = new SliderSetting("Range", 4.0D, 2.0D, 8.0D, 0.5D));
-        this.registerSetting(delay = new DoubleSliderSetting("Delay (ms)", 800, 1500, 300, 5000, 50));
+        this.registerSetting(delay = new DoubleSliderSetting("Delay", 800, 1500, 300, 5000, 50));
         this.registerSetting(chance = new SliderSetting("Chance %", 100, 0, 100, 1));
-        this.registerSetting(onlyPlayers = new TickSetting("Only players", true));
-        this.registerSetting(onlySword = new TickSetting("Only when holding sword", true));
-        this.registerSetting(requireSprint = new TickSetting("Require sprint", false));
+        this.registerSetting(onlyPlayers = new TickSetting("Players only", true));
+        this.registerSetting(onlySword = new TickSetting("Sword only", true));
+        this.registerSetting(requireSprint = new TickSetting("Need sprint", false));
     }
 
     @Override

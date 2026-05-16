@@ -19,9 +19,9 @@ public class AutoHeader extends Module {
     public AutoHeader() {
         super("AutoHeadHitter", ModuleCategory.movement);
         this.registerSetting(desc = new DescriptionSetting("Spams spacebar when under blocks"));
-        this.registerSetting(cancelDuringShift = new TickSetting("Cancel if snkeaing", true));
-        this.registerSetting(onlyWhenHoldingSpacebar = new TickSetting("Only when holding jump", true));
-        this.registerSetting(pbs = new SliderSetting("Jump Presses per second", 12, 1, 20, 1));
+        this.registerSetting(cancelDuringShift = new TickSetting("Off sneak", true));
+        this.registerSetting(onlyWhenHoldingSpacebar = new TickSetting("Hold jump", true));
+        this.registerSetting(pbs = new SliderSetting("Jumps/sec", 12, 1, 20, 1));
 
     }
 

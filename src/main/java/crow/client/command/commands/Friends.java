@@ -8,8 +8,9 @@ import static crow.client.clickgui.crow.Terminal.print;
 
 public class Friends extends Command {
     public Friends() {
-        super("friends", "Allows you to manage and view your friends list", 1, 2,
-                new String[] { "add / remove / list", "Player's name" }, new String[] { "f", "amigos", "lonely4ever" });
+        super("friends", "Allows you to manage and view your friends list", 0, 2,
+                new String[] { "add / remove / list", "Player's name" },
+                new String[] { "friend", "f", "amigos", "lonely4ever" });
     }
 
     @Override

@@ -67,17 +67,17 @@ public class BlockIn extends Module {
 
     public BlockIn() {
         super("BlockIn", ModuleCategory.combat);
-        this.registerSetting(placeRange = new SliderSetting("Place Range", 4.5D, 3.0D, 6.0D, 0.1D));
-        this.registerSetting(placeDelay = new SliderSetting("Place Delay", 0.0D, 0.0D, 8.0D, 1.0D));
-        this.registerSetting(rotationSpeed = new SliderSetting("Rotation Speed", 32.0D, 2.0D, 60.0D, 0.5D));
+        this.registerSetting(placeRange = new SliderSetting("Place range", 4.5D, 3.0D, 6.0D, 0.1D));
+        this.registerSetting(placeDelay = new SliderSetting("Place delay", 0.0D, 0.0D, 8.0D, 1.0D));
+        this.registerSetting(rotationSpeed = new SliderSetting("Rot speed", 32.0D, 2.0D, 60.0D, 0.5D));
         this.registerSetting(topCap = new TickSetting("Top cap", true));
         this.registerSetting(bottomCap = new TickSetting("Bottom cap", false));
-        this.registerSetting(swing = new TickSetting("Swing arm", true));
-        this.registerSetting(autoDisable = new TickSetting("Auto disable", true));
-        this.registerSetting(grimBypass = new TickSetting("Grim Bypass Mode", true));
+        this.registerSetting(swing = new TickSetting("Swing", true));
+        this.registerSetting(autoDisable = new TickSetting("Auto off", true));
+        this.registerSetting(grimBypass = new TickSetting("Grim bypass", true));
         this.registerSetting(silent = new TickSetting("Silent", false));
-        this.registerSetting(randomOffsetStrength = new SliderSetting("Random Offset Strength", 0.45D, 0.05D, 1.5D, 0.05D));
-        this.registerSetting(raycastMode = new ComboSetting<>("Raycast Mode", RaycastMode.Grim));
+        this.registerSetting(randomOffsetStrength = new SliderSetting("Rand offset", 0.45D, 0.05D, 1.5D, 0.05D));
+        this.registerSetting(raycastMode = new ComboSetting<>("Raycast", RaycastMode.Grim));
     }
 
     @Override

@@ -35,10 +35,10 @@ public class ClickAssist extends Module {
         this.registerSetting(chance = new SliderSetting("Chance", 80.0D, 0.0D, 100.0D, 1.0D));
         this.registerSetting(L = new TickSetting("Left click", true));
         this.registerSetting(weaponOnly = new TickSetting("Weapon only", true));
-        this.registerSetting(onlyWhileTargeting = new TickSetting("Only while targeting", false));
+        this.registerSetting(onlyWhileTargeting = new TickSetting("Targeting", false));
         this.registerSetting(R = new TickSetting("Right click", false));
         this.registerSetting(blocksOnly = new TickSetting("Blocks only", true));
-        this.registerSetting(above5 = new TickSetting("Above 5 cps", false));
+        this.registerSetting(above5 = new TickSetting("Above 5 CPS", false));
     }
 
     public void onEnable() {

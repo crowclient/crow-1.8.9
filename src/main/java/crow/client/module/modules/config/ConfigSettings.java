@@ -25,10 +25,10 @@ public class ConfigSettings extends Module {
         this.showInHud = false;
         this.withDescription("Save, export, refresh, and open your config folder.");
         this.registerSettings(
-                new ButtonSetting("Save Current Config", this::saveCurrentConfig),
-                new ButtonSetting("Refresh Config List", this::refreshConfigList),
-                new ButtonSetting("Export .crow File", this::exportCurrentConfig),
-                new ButtonSetting("Open Config Folder", this::openConfigFolder)
+                new ButtonSetting("Save", this::saveCurrentConfig),
+                new ButtonSetting("Refresh", this::refreshConfigList),
+                new ButtonSetting("Export", this::exportCurrentConfig),
+                new ButtonSetting("Open Folder", this::openConfigFolder)
         );
     }
 

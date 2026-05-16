@@ -99,6 +99,9 @@ public class ClientConfig {
             data.addProperty("compactX", Crow.compactGui.getSavedContainerX());
             data.addProperty("compactY", Crow.compactGui.getSavedContainerY());
         }
+        if (Crow.spaciousGui != null) {
+            data.add("spacious", Crow.spaciousGui.getStateAsJson());
+        }
         return data;
     }
 
@@ -177,6 +180,9 @@ public class ClientConfig {
         }
         if (Crow.compactGui != null && data.has("compactX") && data.has("compactY")) {
             Crow.compactGui.setSavedPosition(data.get("compactX").getAsInt(), data.get("compactY").getAsInt());
+        }
+        if (Crow.spaciousGui != null && data.has("spacious")) {
+            Crow.spaciousGui.applyState(data.get("spacious").getAsJsonObject());
         }
     }
 

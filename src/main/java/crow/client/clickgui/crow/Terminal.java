@@ -171,6 +171,20 @@ public class Terminal {
 
     public static void print(String message) {
         out.add(message);
+        // Mirror to in-game chat. The old click GUI ("crow" theme) had a
+        // visible Terminal window where this {@code out} list rendered;
+        // the new CompactGui doesn't, so commands appeared to do nothing
+        // when run via the chat-prefix path (e.g. {@code .help}). Sending
+        // the message to the player's chat HUD gives feedback regardless
+        // of which GUI is open.
+        try {
+            net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getMinecraft();
+            if (mc != null && mc.thePlayer != null) {
+                mc.thePlayer.addChatComponentMessage(
+                        new net.minecraft.util.ChatComponentText(
+                                "§8[Crow]§r " + message));
+            }
+        } catch (Throwable ignored) {}
     }
 
     public static String[] mergeArray(String[] arr1, String[] arr2) {

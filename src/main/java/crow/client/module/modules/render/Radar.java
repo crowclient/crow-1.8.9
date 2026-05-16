@@ -44,8 +44,8 @@ public class Radar extends Module {
         this.registerSetting(posX = new SliderSetting("X", 10, 0, 4000, 1));
         this.registerSetting(posY = new SliderSetting("Y", 40, 0, 2000, 1));
         this.registerSetting(size = new SliderSetting("Size", 74, 50, 120, 1));
-        this.registerSetting(arrowScale = new SliderSetting("Arrow Scale", 8, 2, 16, 0.5));
-        this.registerSetting(showProjectiles = new TickSetting("Show Projectiles", true));
+        this.registerSetting(arrowScale = new SliderSetting("Arrow scale", 8, 2, 16, 0.5));
+        this.registerSetting(showProjectiles = new TickSetting("Projectiles", true));
     }
 
     @Subscribe

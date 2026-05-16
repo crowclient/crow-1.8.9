@@ -76,26 +76,26 @@ public class Scaffold extends Module {
 
         registerSetting(mode    = new ComboSetting<>("Mode",    ScaffoldMode.Normal));
         registerSetting(bypass  = new ComboSetting<>("Bypass",  BypassProfile.None));
-        registerSetting(safeWalk          = new TickSetting("SafeWalk",            true));
-        registerSetting(keepY             = new TickSetting("KeepY",               true));
-        registerSetting(autoSwitch        = new TickSetting("AutoSwitch",          true));
-        registerSetting(silentForwardWalk = new TickSetting("Silent forward walk", true));
+        registerSetting(safeWalk          = new TickSetting("SafeWalk",       true));
+        registerSetting(keepY             = new TickSetting("Keep Y",         true));
+        registerSetting(autoSwitch        = new TickSetting("Auto switch",    true));
+        registerSetting(silentForwardWalk = new TickSetting("Silent fwd",     true));
 
         registerSetting(new DescriptionSetting("--- Placement ---"));
-        registerSetting(placeRange = new SliderSetting("Place Range", 4.2, 3.0, 5.0, 0.1));
-        registerSetting(minDelay   = new SliderSetting("Min Delay",   0,   0,   5,   1));
-        registerSetting(maxDelay   = new SliderSetting("Max Delay",   1,   0,   5,   1));
+        registerSetting(placeRange = new SliderSetting("Place range", 4.2, 3.0, 5.0, 0.1));
+        registerSetting(minDelay   = new SliderSetting("Min delay",   0,   0,   5,   1));
+        registerSetting(maxDelay   = new SliderSetting("Max delay",   1,   0,   5,   1));
 
         registerSetting(new DescriptionSetting("--- Rotation ---"));
-        registerSetting(rotSpeed    = new SliderSetting("Rot Speed",     14.0, 4.0,  30.0, 0.5));
-        registerSetting(pitchTarget = new SliderSetting("Pitch",         78.0, 60.0, 85.0, 1.0));
-        registerSetting(jitter      = new SliderSetting("Jitter",         0.4, 0.0,   2.0, 0.05));
+        registerSetting(rotSpeed    = new SliderSetting("Rot speed",  14.0, 4.0,  30.0, 0.5));
+        registerSetting(pitchTarget = new SliderSetting("Pitch",      78.0, 60.0, 85.0, 1.0));
+        registerSetting(jitter      = new SliderSetting("Jitter",      0.4, 0.0,   2.0, 0.05));
 
         registerSetting(new DescriptionSetting("--- Eagle ---"));
-        registerSetting(eagleSneak = new TickSetting("Eagle Sneak", true));
+        registerSetting(eagleSneak = new TickSetting("Eagle sneak", true));
 
         registerSetting(new DescriptionSetting("--- Tower ---"));
-        registerSetting(towerMotion = new SliderSetting("Tower Motion", 0.42, 0.10, 1.0, 0.02));
+        registerSetting(towerMotion = new SliderSetting("Tower motion", 0.42, 0.10, 1.0, 0.02));
     }
 
     @Override

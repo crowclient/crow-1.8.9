@@ -56,13 +56,13 @@ public class Indicators extends Module {
     public Indicators() {
         super("Indicators", ModuleCategory.render);
         this.registerSetting(range = new SliderSetting("Range", 30.0D, 5.0D, 80.0D, 1.0D));
-        this.registerSetting(circleRadius = new SliderSetting("Circle Radius", 50.0D, 20.0D, 120.0D, 1.0D));
-        this.registerSetting(iconScale = new SliderSetting("Icon Size", 1.0D, 0.5D, 2.0D, 0.05D));
-        this.registerSetting(showCircle = new TickSetting("Show Circle", true));
-        this.registerSetting(showDistance = new TickSetting("Show Distance", true));
+        this.registerSetting(circleRadius = new SliderSetting("Radius", 50.0D, 20.0D, 120.0D, 1.0D));
+        this.registerSetting(iconScale = new SliderSetting("Icon size", 1.0D, 0.5D, 2.0D, 0.05D));
+        this.registerSetting(showCircle = new TickSetting("Circle", true));
+        this.registerSetting(showDistance = new TickSetting("Distance", true));
         this.registerSetting(showFireballs = new TickSetting("Fireballs", true));
         this.registerSetting(showArrows = new TickSetting("Arrows", true));
-        this.registerSetting(showPearls = new TickSetting("Ender Pearls", true));
+        this.registerSetting(showPearls = new TickSetting("Pearls", true));
         this.registerSetting(showTNT = new TickSetting("TNT", true));
         this.registerSetting(showSnowballs = new TickSetting("Snowballs", true));
         this.registerSetting(showEggs = new TickSetting("Eggs", true));

@@ -53,18 +53,18 @@ public class RightClicker extends Module {
     public RightClicker() {
         super("Right Clicker", ModuleCategory.combat);
 
-        this.registerSetting(rightCPS = new DoubleSliderSetting("RightCPS", 12, 16, 1, 60, 0.5));
-        this.registerSetting(jitterRight = new SliderSetting("Jitter right", 0.0D, 0.0D, 3.0D, 0.1D));
-        this.registerSetting(rightClickDelay = new SliderSetting("Rightclick delay (ms)", 85D, 0D, 500D, 1.0D));
-        this.registerSetting(noBlockSword = new TickSetting("Don't rightclick sword", true));
+        this.registerSetting(rightCPS = new DoubleSliderSetting("CPS", 12, 16, 1, 60, 0.5));
+        this.registerSetting(jitterRight = new SliderSetting("Jitter", 0.0D, 0.0D, 3.0D, 0.1D));
+        this.registerSetting(rightClickDelay = new SliderSetting("Delay", 85D, 0D, 500D, 1.0D));
+        this.registerSetting(noBlockSword = new TickSetting("No sword", true));
         this.registerSetting(ignoreRods = new TickSetting("Ignore rods", true));
-        this.registerSetting(onlyBlocks = new TickSetting("Only rightclick with blocks", false));
-        this.registerSetting(preferFastPlace = new TickSetting("Prefer fast place", false));
-        this.registerSetting(allowEat = new TickSetting("Allow eat & drink", true));
+        this.registerSetting(onlyBlocks = new TickSetting("Blocks only", false));
+        this.registerSetting(preferFastPlace = new TickSetting("Fast place", false));
+        this.registerSetting(allowEat = new TickSetting("Allow eat", true));
         this.registerSetting(allowBow = new TickSetting("Allow bow", true));
 
         this.registerSetting(clickTimings = new ComboSetting("Click event", ClickEvent.Render));
-        this.registerSetting(clickStyle = new ComboSetting("Click Style", ClickStyle.Crow));
+        this.registerSetting(clickStyle = new ComboSetting("Click style", ClickStyle.Crow));
 
         try {
             this.playerMouseInput = ReflectionHelper.findMethod(GuiScreen.class, null,

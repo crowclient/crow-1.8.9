@@ -26,7 +26,7 @@ public class WaterBucket extends Module {
     public WaterBucket() {
         super("Water bucket", ModuleCategory.world);
         this.registerSetting(moduleDesc = new DescriptionSetting("Auto MLG water. Disabled in the Nether."));
-        this.registerSetting(distance = new SliderSetting("Fall Distance", 3, 1, 10, 0.1));
+        this.registerSetting(distance = new SliderSetting("Fall dist", 3, 1, 10, 0.1));
     }
 
     @Override

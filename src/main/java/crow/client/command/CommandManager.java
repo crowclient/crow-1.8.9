@@ -15,24 +15,14 @@ public class CommandManager {
     public CommandManager() {
         this.commandList = new ArrayList<>();
         this.sortedCommandList = new ArrayList<>();
-        this.addCommand(new Update());
         this.addCommand(new Help());
-        this.addCommand(new SetKey());
-        this.addCommand(new Discord());
         this.addCommand(new ConfigCommand());
         this.addCommand(new Clear());
-        this.addCommand(new Cname());
-        this.addCommand(new Debug());
         this.addCommand(new Duels());
         this.addCommand(new Fakechat());
         this.addCommand(new Nick());
         this.addCommand(new Ping());
-        this.addCommand(new Shoutout());
-        this.addCommand(new Uwu());
         this.addCommand(new Friends());
-        this.addCommand(new VersionCommand());
-        this.addCommand(new CFakeHud());
-        this.addCommand(new CHideModule());
         this.addCommand(new FontCommand());
         this.addCommand(new BindCommand());
 

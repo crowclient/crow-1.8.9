@@ -17,8 +17,11 @@ public class GuiModule extends Module {
     private static ComboSetting preset;
 
     private static ComboSetting<CompactPalette> compactPalette;
+    private static ComboSetting<GuiMode> guiMode;
     private static TickSetting notifications, toggleSounds, customMainMenu;
     public static TickSetting blur;
+
+    public enum GuiMode { Compact, Spacious }
 
     private static boolean suppressScreenClose;
 
@@ -27,10 +30,16 @@ public class GuiModule extends Module {
         withKeycode(54);
         withEnabled(false);
 
-        this.registerSetting(customMainMenu = new TickSetting("Custom Main Menu", true));
+        this.registerSetting(guiMode = new ComboSetting<>("Layout", GuiMode.Compact));
+        this.registerSetting(customMainMenu = new TickSetting("Custom menu", true));
         this.registerSetting(notifications = new TickSetting("Notifications", true));
-        this.registerSetting(toggleSounds = new TickSetting("Toggle Sounds", false));
-        this.registerSetting(blur = new TickSetting("Background Blur", true));
+        this.registerSetting(toggleSounds = new TickSetting("Sounds", false));
+        this.registerSetting(blur = new TickSetting("Blur", true));
+    }
+
+    public static GuiMode getGuiMode() {
+        if (guiMode == null) return GuiMode.Compact;
+        return (GuiMode) guiMode.getMode();
     }
 
     public static boolean isBlurEnabled() {
@@ -45,12 +54,12 @@ public class GuiModule extends Module {
         }
 
         if ((mc.currentScreen == Crow.clickGui) || (mc.currentScreen == Crow.kvCompactGui)
-                || (mc.currentScreen == Crow.compactGui)) {
+                || (mc.currentScreen == Crow.compactGui) || (mc.currentScreen == Crow.spaciousGui)) {
             mc.displayGuiScreen(null);
             return;
         }
 
-        mc.displayGuiScreen(Crow.compactGui);
+        mc.displayGuiScreen(getGuiMode() == GuiMode.Spacious ? Crow.spaciousGui : Crow.compactGui);
     }
 
     @Override
@@ -69,7 +78,8 @@ public class GuiModule extends Module {
 
     @Override
     public void onDisable() {
-        if (!suppressScreenClose && ((mc.currentScreen == Crow.clickGui) || (mc.currentScreen == Crow.kvCompactGui) || (mc.currentScreen == Crow.compactGui))) {
+        if (!suppressScreenClose && ((mc.currentScreen == Crow.clickGui) || (mc.currentScreen == Crow.kvCompactGui)
+                || (mc.currentScreen == Crow.compactGui) || (mc.currentScreen == Crow.spaciousGui))) {
             mc.displayGuiScreen(null);
         }
     }

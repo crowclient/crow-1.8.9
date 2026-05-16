@@ -20,7 +20,6 @@ import net.minecraft.client.gui.GuiSelectWorld;
 import net.minecraft.client.gui.GuiYesNo;
 import net.minecraft.client.gui.GuiYesNoCallback;
 import net.minecraft.client.renderer.GlStateManager;
-import net.minecraft.util.EnumChatFormatting;
 import net.minecraft.util.ResourceLocation;
 
 public class CrowMainMenu extends GuiScreen implements GuiYesNoCallback {
@@ -154,8 +153,11 @@ public class CrowMainMenu extends GuiScreen implements GuiYesNoCallback {
 
         drawMenuSwitch(mouseX, mouseY, dt);
 
-        String version = EnumChatFormatting.GRAY + "Build 1.2.8";
-        drawSmall(version, width - getSmallWidth(version) - 12, height - 18, 0xA0FFFFFF);
+        // Version badge — bottom-right, muted. Stripped the leading
+        // EnumChatFormatting code (FontUtil doesn't parse §-codes; it
+        // would render as a literal "§7" prefix on top of the text).
+        String version = "Build 1.2.8";
+        drawSmall(version, width - getSmallWidth(version) - 12, height - 18, 0x9AB4BBC7);
 
         super.drawScreen(mouseX, mouseY, partialTicks);
     }
@@ -174,11 +176,9 @@ public class CrowMainMenu extends GuiScreen implements GuiYesNoCallback {
 
         drawParticles(partialTicks, 0.09F);
 
-        int flowAlpha = (int) (18 * bgRevealAnim);
-        if (flowAlpha > 0) {
-            RenderUtils.drawFlowingGradientRect(0, 0, width, height,
-                    flowAlpha, (int) (System.currentTimeMillis() / 10L));
-        }
+        // (Flowing-gradient overlay removed. Background reads cleaner
+        // without the constantly-moving sheen — let the parallax photo
+        // and blobs carry the depth.)
 
         int scrimAlpha = (int) (0x66 * bgRevealAnim);
         GuiScreen.drawRect(0, 0, width, height, (scrimAlpha << 24) | 0x080A10);
@@ -269,31 +269,37 @@ public class CrowMainMenu extends GuiScreen implements GuiYesNoCallback {
 
     private void drawPanel(int panelX, int panelY, int alpha) {
 
-        int shadowAlpha = clamp255((int) (alpha * 0.14F));
-        RenderUtils.drawRoundedRectAA(panelX - 8, panelY + 8,
-                panelX + PANEL_WIDTH + 8, panelY + PANEL_HEIGHT + 12,
-                22, (shadowAlpha << 24));
+        int shadowAlpha = clamp255((int) (alpha * 0.20F));
+        RenderUtils.drawRoundedRectAA(panelX - 10, panelY + 10,
+                panelX + PANEL_WIDTH + 10, panelY + PANEL_HEIGHT + 14,
+                24, (shadowAlpha << 24));
 
-        int outerColor = (alpha << 24) | 0x1A1F28;
-        int innerColor = (clamp255((int) (alpha * 0.97F)) << 24) | 0x242A34;
+        // Slightly cooler body — gives the panel a calmer feel against
+        // the warm parallax photo behind it.
+        int outerColor = (alpha << 24) | 0x161B24;
+        int innerColor = (clamp255((int) (alpha * 0.97F)) << 24) | 0x1F242F;
         RenderUtils.drawRoundedRectAA(panelX, panelY,
                 panelX + PANEL_WIDTH, panelY + PANEL_HEIGHT, 22, outerColor);
         RenderUtils.drawRoundedRectAA(panelX + 1, panelY + 1,
                 panelX + PANEL_WIDTH - 1, panelY + PANEL_HEIGHT - 1, 21, innerColor);
 
-        int sepAlpha = clamp255((int) (alpha * 0.55F));
-        RenderUtils.drawFlowingGradientRoundedRect(panelX + 16, panelY + 77,
-                panelX + PANEL_WIDTH - 16, panelY + 80, 1.5F, sepAlpha, 0);
+        // Static 1-px hairline under the branding instead of a flowing
+        // gradient strip. Reads as a clean section divider, doesn't
+        // demand attention.
+        int sepAlpha = clamp255((int) (alpha * 0.16F));
+        RenderUtils.drawRoundedRectAA(panelX + 22, panelY + 78,
+                panelX + PANEL_WIDTH - 22, panelY + 79, 0.5F,
+                (sepAlpha << 24) | 0xFFFFFF);
     }
 
     private void drawBranding(int panelX, int panelY, int panelWidth, int alpha) {
-        int iconSize = 30;
+        int iconSize = 32;
         int approxFontH = 20;
-        int gap = 7;
+        int gap = 9;
         int titleWidth = getBoldWidth("Crow");
         int rowWidth = iconSize + gap + titleWidth;
         int rowX = panelX + (panelWidth - rowWidth) / 2;
-        int rowY = panelY + 18;
+        int rowY = panelY + 16;
 
         if (CROW_ICON != null) {
             float a = alpha / 255.0F;
@@ -310,10 +316,12 @@ public class CrowMainMenu extends GuiScreen implements GuiYesNoCallback {
         int titleColor = (alpha << 24) | (GuiModule.getThemeColor(0) & 0x00FFFFFF);
         drawBold("Crow", rowX + iconSize + gap, rowY + (iconSize - approxFontH) / 2, titleColor);
 
+        // Muted subtitle — lower contrast than before so the title
+        // carries the focus.
         String subtitle = "A cleaner way back into Minecraft.";
         int subtitleWidth = getSemiBoldWidth(subtitle);
-        drawSemiBold(subtitle, panelX + (panelWidth - subtitleWidth) / 2.0F, panelY + 58,
-                withAlpha(0xFFB6BDC9, alpha));
+        drawSemiBold(subtitle, panelX + (panelWidth - subtitleWidth) / 2.0F, panelY + 60,
+                withAlpha(0xFF8A92A0, alpha));
     }
 
     private void drawMenuSwitch(int mouseX, int mouseY, float dt) {
@@ -324,15 +332,18 @@ public class CrowMainMenu extends GuiScreen implements GuiYesNoCallback {
         boolean hovered = isMenuSwitchHovered(mouseX, mouseY);
         menuSwitchAnim = expEase(menuSwitchAnim, hovered ? 1.0F : 0.0F, SPEED_MENU_SWITCH, dt);
 
+        // Softer chip — solid blend from idle to a slightly lifted shade,
+        // with a faint theme tint on hover (no flowing accent).
         int themeColor = GuiModule.getThemeColor(0);
-        int hoverFill = ((int) (0x30 * menuSwitchAnim) << 24) | (themeColor & 0x00FFFFFF);
-        int fill = blendColor(0xCC222833, 0xE0323946, menuSwitchAnim);
-        int border = blendColor(0x14000000, (0x40 << 24) | (themeColor & 0x00FFFFFF), menuSwitchAnim);
+        int hoverTintAlpha = (int) (0x18 * menuSwitchAnim);
+        int hoverTint = (hoverTintAlpha << 24) | (themeColor & 0x00FFFFFF);
+        int fill = blendColor(0xCC1F242E, 0xE02A3140, menuSwitchAnim);
+        int border = blendColor(0x10000000, (0x36 << 24) | (themeColor & 0x00FFFFFF), menuSwitchAnim);
         int text = blendColor(0xFFD6DCE7, 0xFFFFFFFF, menuSwitchAnim);
 
         RenderUtils.drawRoundedRectAA(x, y, x + w, y + h, 9, fill);
         if (menuSwitchAnim > 0.01F) {
-            RenderUtils.drawRoundedRectAA(x, y, x + w, y + h, 9, hoverFill);
+            RenderUtils.drawRoundedRectAA(x, y, x + w, y + h, 9, hoverTint);
         }
         RenderUtils.drawRoundedOutline(x, y, x + w, y + h, 9, 1.0F, border);
         drawSmall("Vanilla Menu", x + (w - getSmallWidth("Vanilla Menu")) / 2.0F, y + 7, text);
@@ -464,28 +475,44 @@ public class CrowMainMenu extends GuiScreen implements GuiYesNoCallback {
             float entryOffset = (1.0F - easeOutCubic(revealAnim)) * 12.0F;
             int top = (int) (yPosition - lift + entryOffset);
             int bottom = (int) (yPosition + height - lift + entryOffset);
-            float radius = 12;
+            float radius = 11;
 
             int themeColor = GuiModule.getThemeColor(xPosition + width / 2);
-            int baseFill   = withAlpha(0xFF272D38, alphaByte);
-            int hoverFill  = withAlpha(blendColor(0xFF272D38, 0xFF313845, hoverAnim), alphaByte);
-            int finalFill  = blendColor(baseFill, hoverFill, hoverAnim);
+
+            // Base fill — slightly darker, more "card-like" feel. Hover
+            // blends toward a lifted shade and adds a soft theme tint.
+            int baseFill  = withAlpha(0xFF20252F, alphaByte);
+            int hoverFill = withAlpha(blendColor(0xFF20252F, 0xFF2C3340, hoverAnim), alphaByte);
+            int finalFill = blendColor(baseFill, hoverFill, hoverAnim);
             RenderUtils.drawRoundedRectAA(xPosition, top, xPosition + width, bottom, radius, finalFill);
 
             if (hoverAnim > 0.01F) {
-                int tintAlpha = clamp255((int) (0x18 * hoverAnim * r));
+                int tintAlpha = clamp255((int) (0x22 * hoverAnim * r));
                 int tint = (tintAlpha << 24) | (themeColor & 0x00FFFFFF);
                 RenderUtils.drawRoundedRectAA(xPosition, top, xPosition + width, bottom, radius, tint);
             }
 
+            // Soft outline — fades from near-invisible at rest to a
+            // muted theme glow on hover. No flowing-gradient accent bar.
             int borderColor = withAlpha(
-                    blendColor(0x16000000, (0x50 << 24) | (themeColor & 0x00FFFFFF), hoverAnim),
+                    blendColor(0x12000000, (0x44 << 24) | (themeColor & 0x00FFFFFF), hoverAnim),
                     alphaByte);
             RenderUtils.drawRoundedOutline(xPosition, top, xPosition + width, bottom, radius, 1.0F, borderColor);
 
-            int accentAlpha = clamp255((int) ((60 + 100 * hoverAnim) * r));
-            RenderUtils.drawFlowingGradientRoundedRect(xPosition, bottom - 3,
-                    xPosition + width, bottom, radius, accentAlpha, xPosition);
+            // Left-edge theme dot — the new "I'm hovered" indicator.
+            // Solid, animates in cleanly with hover, no motion in the
+            // background. Replaces the flowing-gradient strip that used
+            // to live at the button's bottom edge.
+            if (hoverAnim > 0.02F) {
+                float dotProgress = easeOutCubic(hoverAnim);
+                int dotAlpha = clamp255((int) (0xE0 * dotProgress * r));
+                int dotColor = (dotAlpha << 24) | (themeColor & 0x00FFFFFF);
+                int dotCenterY = (top + bottom) / 2;
+                int dotR = 2;
+                int dotX = xPosition + 9;
+                RenderUtils.drawRoundedRectAA(dotX - dotR, dotCenterY - dotR,
+                        dotX + dotR, dotCenterY + dotR, dotR, dotColor);
+            }
 
             int textColor = withAlpha(blendColor(0xFFD6DCE7, 0xFFFFFFFF, hoverAnim), alphaByte);
             int textWidth = getSemiBoldWidth(displayString);

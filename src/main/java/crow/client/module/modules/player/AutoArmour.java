@@ -61,11 +61,11 @@ public class AutoArmour extends Module {
     public AutoArmour() {
         super("AutoArmor", ModuleCategory.player);
         this.registerSetting(mode = new ComboSetting("Mode", ArmorMode.Inventory));
-        this.registerSetting(startDelay = new DoubleSliderSetting("Start delay (ms)", 50, 150, 0, 500, 1));
-        this.registerSetting(actionDelay = new DoubleSliderSetting("Action delay (ms)", 50, 120, 0, 500, 1));
-        this.registerSetting(preferProt = new TickSetting("Prefer Protection", true));
-        this.registerSetting(antiVoid = new TickSetting("Don't remove current", false));
-        this.registerSetting(actionCap = new SliderSetting("Actions per open", 0, 0, 20, 1));
+        this.registerSetting(startDelay = new DoubleSliderSetting("Start delay", 50, 150, 0, 500, 1));
+        this.registerSetting(actionDelay = new DoubleSliderSetting("Action delay", 50, 120, 0, 500, 1));
+        this.registerSetting(preferProt = new TickSetting("Prefer prot", true));
+        this.registerSetting(antiVoid = new TickSetting("Keep current", false));
+        this.registerSetting(actionCap = new SliderSetting("Action cap", 0, 0, 20, 1));
     }
 
     @Override

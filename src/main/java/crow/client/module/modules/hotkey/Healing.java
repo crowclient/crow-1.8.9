@@ -18,9 +18,9 @@ public class Healing extends Module {
     public Healing() {
         super("Healing", ModuleCategory.hotkey);
 
-        this.registerSetting(preferSlot = new TickSetting("Prefer a slot", false));
-        this.registerSetting(hotbarSlotPreference = new SliderSetting("Prefer wich slot", 8, 1, 9, 1));
-        this.registerSetting(itemMode = new ComboSetting("Mode:", mode));
+        this.registerSetting(preferSlot = new TickSetting("Prefer slot", false));
+        this.registerSetting(hotbarSlotPreference = new SliderSetting("Slot", 8, 1, 9, 1));
+        this.registerSetting(itemMode = new ComboSetting("Mode", mode));
     }
 
     @Override

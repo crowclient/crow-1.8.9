@@ -12,7 +12,7 @@ public class Armour extends Module {
     public Armour() {
         super("Armour", ModuleCategory.hotkey);
 
-        this.registerSetting(ignoreIfAlreadyEquipped = new TickSetting("Ignore if already equipped", true));
+        this.registerSetting(ignoreIfAlreadyEquipped = new TickSetting("Skip equipped", true));
     }
 
     @Override

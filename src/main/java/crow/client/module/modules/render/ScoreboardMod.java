@@ -59,9 +59,9 @@ public class ScoreboardMod extends Module {
         this.registerSetting(outline = new TickSetting("Outline", true));
         this.registerSetting(posX = new SliderSetting("X", DEFAULT_POS_X, 0, 4000, 1));
         this.registerSetting(posY = new SliderSetting("Y", DEFAULT_POS_Y, 0, 2000, 1));
-        this.registerSetting(bgOpacity = new SliderSetting("BG Opacity", 162, 0, 255, 1));
-        this.registerSetting(bgColor = new RGBSetting("BG Color", 18, 20, 26));
-        this.registerSetting(outlineColor = new RGBSetting("Outline Color", 255, 255, 255));
+        this.registerSetting(bgOpacity = new SliderSetting("BG opacity", 162, 0, 255, 1));
+        this.registerSetting(bgColor = new RGBSetting("BG color", 18, 20, 26));
+        this.registerSetting(outlineColor = new RGBSetting("Outline color", 255, 255, 255));
         this.registerSetting(scale = new SliderSetting("Scale", 1.0, 0.5, 2.0, 0.05));
     }
 

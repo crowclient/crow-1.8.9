@@ -95,7 +95,6 @@ import crow.client.module.modules.render.Fullbright;
 import crow.client.module.modules.render.Nametags;
 import crow.client.module.modules.render.PenisESP;
 import crow.client.module.modules.render.PlayerESP;
-import crow.client.module.modules.render.MusicWidget;
 import crow.client.module.modules.render.Radar;
 import crow.client.module.modules.render.Projectiles;
 import crow.client.module.modules.render.ScoreboardMod;
@@ -156,6 +155,7 @@ public class ModuleManager {
         addModule(new KillAura());
         addModule(new Reach());
         addModule(new Velocity());
+        addModule(new JumpReset());
         addModule(new LeftClicker());
         addModule(new RightClicker());
         addModule(new AimAssist());
@@ -172,7 +172,6 @@ public class ModuleManager {
 
         addModule(new PlayerESP());
         addModule(new PenisESP());
-        addModule(new MusicWidget().withHidden(true));
         addModule(new ChestESP());
         addModule(new Tracers());
         addModule(new Chams());

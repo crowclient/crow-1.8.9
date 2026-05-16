@@ -25,7 +25,7 @@ public class Freecam extends Module {
     public Freecam() {
         super("Freecam", ModuleCategory.player);
         this.registerSetting(a = new SliderSetting("Speed", 2.5D, 0.5D, 10.0D, 0.5D));
-        this.registerSetting(b = new TickSetting("Disable on damage", true));
+        this.registerSetting(b = new TickSetting("Off on hit", true));
     }
 
     @Override

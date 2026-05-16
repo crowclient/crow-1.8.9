@@ -36,10 +36,10 @@ public class LagRange extends Module {
         super("LagRange", ModuleCategory.combat);
         this.withDescription("Delays position packets to extend effective reach. Does not delay KeepAlive.");
         this.registerSetting(new DescriptionSetting("Delays C03 position packets."));
-        this.registerSetting(lagMs = new SliderSetting("Lag (ms)", 80.0, 0.0, 300.0, 10.0));
-        this.registerSetting(delayPosition = new TickSetting("Delay Position", true));
-        this.registerSetting(delayedVelocity = new TickSetting("Delayed Velocity", true));
-        this.registerSetting(velocityDelayMs = new SliderSetting("Velocity Delay (ms)", 100.0, 0.0, 400.0, 10.0));
+        this.registerSetting(lagMs = new SliderSetting("Lag", 80.0, 0.0, 300.0, 10.0));
+        this.registerSetting(delayPosition = new TickSetting("Delay pos", true));
+        this.registerSetting(delayedVelocity = new TickSetting("Delay velo", true));
+        this.registerSetting(velocityDelayMs = new SliderSetting("Velo delay", 100.0, 0.0, 400.0, 10.0));
     }
 
     @Override

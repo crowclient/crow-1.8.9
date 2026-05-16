@@ -71,7 +71,7 @@ public class Nametags extends Module {
         this.registerSetting(showHealth = new TickSetting("Show health", true));
         this.registerSetting(showInvis = new TickSetting("Show invis", true));
         this.registerSetting(showArmor = new TickSetting("Show armor", true));
-        this.registerSetting(removeTags = new TickSetting("Remove vanilla tags", true));
+        this.registerSetting(removeTags = new TickSetting("Hide vanilla", true));
         this.registerSetting(customFont = new TickSetting("Custom font", true));
     }
 

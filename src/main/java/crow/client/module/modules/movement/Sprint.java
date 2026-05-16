@@ -12,7 +12,7 @@ public class Sprint extends Module {
 
     public Sprint() {
         super("Sprint", ModuleCategory.movement);
-        this.registerSetting(multiDir = new TickSetting("All Directions", false));
+        this.registerSetting(multiDir = new TickSetting("All dirs", false));
     }
 
     @Subscribe

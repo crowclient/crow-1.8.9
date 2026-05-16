@@ -12,6 +12,7 @@ import com.google.common.eventbus.SubscriberExceptionHandler;
 import crow.client.clickgui.compact.CompactGui;
 import crow.client.clickgui.kv.KvCompactGui;
 import crow.client.clickgui.crow.ClickGui;
+import crow.client.clickgui.spacious.SpaciousGui;
 import crow.client.command.CommandManager;
 import crow.client.config.ConfigManager;
 import crow.client.event.forge.ForgeEventListener;
@@ -54,6 +55,7 @@ public class Crow {
     public static ClickGui clickGui;
     public static KvCompactGui kvCompactGui;
     public static CompactGui compactGui;
+    public static SpaciousGui spaciousGui;
 
     private static final ScheduledExecutorService ex = Executors.newScheduledThreadPool(2);
 
@@ -130,6 +132,7 @@ public class Crow {
         clickGui = new ClickGui();
         kvCompactGui = new KvCompactGui();
         compactGui = new CompactGui();
+        spaciousGui = new SpaciousGui();
         configManager = new ConfigManager();
         clientConfig = new ClientConfig();
         clientConfig.applyConfig();

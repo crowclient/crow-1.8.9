@@ -31,13 +31,13 @@ public class AutoSoup extends Module {
 
     public AutoSoup() {
         super("AutoSoup", ModuleCategory.combat);
-        this.registerSetting(delay = new DoubleSliderSetting("delay(ms)", 50, 100, 0, 200, 1));
-        this.registerSetting(coolDown = new DoubleSliderSetting("cooldown(ms)", 1000, 1200, 0, 5000, 1));
-        this.registerSetting(health = new SliderSetting("health", 7, 0, 20, 0.1));
-        this.registerSetting(invConsume = new TickSetting("consume in inv", false));
-        this.registerSetting(autoRefill = new TickSetting("auto refil", true));
-        this.registerSetting(invWait = new DoubleSliderSetting("invWait(ms)", 50, 100, 0, 200, 1));
-        this.registerSetting(invCoolDown = new DoubleSliderSetting("refill delay(ms)", 50, 100, 0, 200, 1));
+        this.registerSetting(delay = new DoubleSliderSetting("Delay", 50, 100, 0, 200, 1));
+        this.registerSetting(coolDown = new DoubleSliderSetting("Cooldown", 1000, 1200, 0, 5000, 1));
+        this.registerSetting(health = new SliderSetting("Health", 7, 0, 20, 0.1));
+        this.registerSetting(invConsume = new TickSetting("Inv consume", false));
+        this.registerSetting(autoRefill = new TickSetting("Auto refill", true));
+        this.registerSetting(invWait = new DoubleSliderSetting("Inv wait", 50, 100, 0, 200, 1));
+        this.registerSetting(invCoolDown = new DoubleSliderSetting("Refill delay", 50, 100, 0, 200, 1));
     }
 
     @Override

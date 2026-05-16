@@ -130,18 +130,18 @@ public class TargetHUD extends Module {
         super("Target HUD", ModuleCategory.render);
 
         this.registerSetting(hudStyle       = new ComboSetting("Style", HudStyle.Normal));
-        this.registerSetting(posXOffset     = new SliderSetting("X Offset", 42, -300, 300, 1));
+        this.registerSetting(posXOffset     = new SliderSetting("X offset", 42, -300, 300, 1));
         posXOffset.visibleWhen(() -> followPlayer == null || !followPlayer.isToggled());
-        this.registerSetting(posYOffset     = new SliderSetting("Y Offset", 20, -300, 300, 1));
+        this.registerSetting(posYOffset     = new SliderSetting("Y offset", 20, -300, 300, 1));
         posYOffset.visibleWhen(() -> followPlayer == null || !followPlayer.isToggled());
-        this.registerSetting(timeout        = new SliderSetting("Timeout (ms)", 3000, 1000, 8000, 100));
+        this.registerSetting(timeout        = new SliderSetting("Timeout", 3000, 1000, 8000, 100));
         this.registerSetting(opacity        = new SliderSetting("Opacity", 0.92D, 0.2D, 1.0D, 0.01D));
         this.registerSetting(scale          = new SliderSetting("Size", 1.0D, 0.5D, 2.0D, 0.05D));
-        this.registerSetting(customFont     = new TickSetting("Custom Font", true));
-        this.registerSetting(followPlayer   = new TickSetting("Follow Player", false));
-        this.registerSetting(followPosition = new ComboSetting("Follow Position", FollowPosition.Above));
+        this.registerSetting(customFont     = new TickSetting("Custom font", true));
+        this.registerSetting(followPlayer   = new TickSetting("Follow", false));
+        this.registerSetting(followPosition = new ComboSetting("Follow pos", FollowPosition.Above));
         followPosition.visibleWhen(() -> followPlayer != null && followPlayer.isToggled());
-        this.registerSetting(barColor       = new ComboSetting("Bar Color", BarColors.Theme));
+        this.registerSetting(barColor       = new ComboSetting("Bar color", BarColors.Theme));
     }
 
     @Subscribe

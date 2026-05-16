@@ -30,8 +30,51 @@ public class FontUtil {
     private static Font medium_;
     private static Font title_;
 
-    private static final File WINDOWS_FONTS_DIR = new File("C:\\Windows\\Fonts");
+    /**
+     * Cross-platform list of system font directories searched when a font
+     * name isn't registered with Java's {@code GraphicsEnvironment}. Used
+     * to fall back onto .ttf/.otf files that live on disk but haven't been
+     * picked up by the JRE's font registry. Linux and macOS users were
+     * previously locked out of the system-font path entirely because the
+     * code only looked at {@code C:\Windows\Fonts}.
+     */
+    private static final java.util.List<File> SYSTEM_FONTS_DIRS = collectSystemFontDirs();
     private static final File NEW_FONTS_DIR = new File("newfonts");
+
+    private static java.util.List<File> collectSystemFontDirs() {
+        java.util.List<File> dirs = new java.util.ArrayList<>();
+        String os = System.getProperty("os.name", "").toLowerCase();
+        String home = System.getProperty("user.home", "");
+        if (os.contains("win")) {
+            // Windows.
+            String winDir = System.getenv("WINDIR");
+            if (winDir != null && !winDir.isEmpty()) {
+                dirs.add(new File(winDir, "Fonts"));
+            } else {
+                dirs.add(new File("C:\\Windows\\Fonts"));
+            }
+            String localAppData = System.getenv("LOCALAPPDATA");
+            if (localAppData != null && !localAppData.isEmpty()) {
+                dirs.add(new File(localAppData, "Microsoft\\Windows\\Fonts"));
+            }
+        } else if (os.contains("mac") || os.contains("darwin")) {
+            // macOS.
+            dirs.add(new File("/System/Library/Fonts"));
+            dirs.add(new File("/Library/Fonts"));
+            if (!home.isEmpty()) {
+                dirs.add(new File(home, "Library/Fonts"));
+            }
+        } else {
+            // Assume Linux / *nix.
+            dirs.add(new File("/usr/share/fonts"));
+            dirs.add(new File("/usr/local/share/fonts"));
+            if (!home.isEmpty()) {
+                dirs.add(new File(home, ".local/share/fonts"));
+                dirs.add(new File(home, ".fonts"));
+            }
+        }
+        return dirs;
+    }
     private static final String DEFAULT_SYSTEM_FONT = "DM Sans";
     private static final long BOOTSTRAP_TIMEOUT_MS = 3000L;
 
@@ -91,15 +134,26 @@ public class FontUtil {
             }
         }
 
+        // Unidirectional partial match: the system family token must contain
+        // our target token, NOT the other way around. The reverse direction
+        // (target.contains(token)) caused Linux to bind to fontconfig's
+        // generic families like "Sans Serif" when looking for "DM Sans",
+        // because "dmsans".contains("sansserif") is false but the OLD code
+        // also accepted the inverse — "sansserif" contains "sans" which is
+        // a substring of "dmsans" — and the matched generic family rendered
+        // with completely different metrics from bundled DM Sans, so all
+        // labels came out small. Restricting to one direction makes the
+        // match precise: only real DM Sans variants ("DM Sans Bold",
+        // "DMSans-Regular", etc.) qualify.
         String target = sanitizeFontToken(normalized);
         for (String familyName : GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames()) {
             String token = sanitizeFontToken(familyName);
-            if (token.contains(target) || target.contains(token)) {
+            if (token.contains(target)) {
                 return calibrateFont(new Font(familyName, fontStyle, (int) fontSize), fontStyle, fontSize);
             }
         }
 
-        File fontFile = findWindowsFontFile(target);
+        File fontFile = findSystemFontFile(target);
         if (fontFile != null) {
             Font loaded = createFontFromFile(fontFile, fontStyle, fontSize);
             if (loaded != null) {
@@ -154,20 +208,64 @@ public class FontUtil {
         return null;
     }
 
-    private static File findWindowsFontFile(String targetToken) {
-        if (!WINDOWS_FONTS_DIR.isDirectory()) return null;
-        File[] files = WINDOWS_FONTS_DIR.listFiles();
-        if (files == null) return null;
+    /**
+     * Look for a .ttf/.otf file whose normalized basename matches
+     * {@code targetToken} across every system font dir for the current OS.
+     * Linux distros commonly nest fonts under subdirectories (e.g.
+     * {@code /usr/share/fonts/truetype/dejavu/}), so we walk subdirectories
+     * to a small depth as well.
+     *
+     * <p>Match is <strong>unidirectional</strong>: the file's token must
+     * contain the target token. The reverse direction
+     * ({@code targetToken.contains(fileToken)}) was previously allowed and
+     * caused Linux users to load wildly wrong fonts whenever a system
+     * .ttf had a basename that happened to be a substring of the target
+     * — e.g. searching for "dmsans" would accept any file whose token was
+     * just "sans" or "dm". Those wrong matches then got loaded, the
+     * calibration logic mis-treated them, and every label on screen
+     * rendered tiny. Restricting to "file contains target" keeps real
+     * matches ("DMSans-Regular", "DM Sans Bold", "DMSansVariable") while
+     * rejecting generic fonts that just share a substring.
+     */
+    private static File findSystemFontFile(String targetToken) {
+        File partial = null;
+        for (File root : SYSTEM_FONTS_DIRS) {
+            if (root == null || !root.isDirectory()) continue;
+            File hit = searchFontDir(root, targetToken, 4);
+            if (hit != null) {
+                String token = sanitizeFontToken(hit.getName().replaceFirst("\\.[^.]+$", ""));
+                if (token.equals(targetToken)) return hit;
+                if (partial == null) partial = hit;
+            }
+        }
+        return partial;
+    }
 
+    private static File searchFontDir(File dir, String targetToken, int maxDepth) {
+        File[] files = dir.listFiles();
+        if (files == null) return null;
         File partial = null;
         for (File file : files) {
-            if (file == null || !file.isFile()) continue;
+            if (file == null) continue;
+            if (file.isDirectory()) {
+                if (maxDepth <= 0) continue;
+                File nested = searchFontDir(file, targetToken, maxDepth - 1);
+                if (nested != null) {
+                    String token = sanitizeFontToken(nested.getName().replaceFirst("\\.[^.]+$", ""));
+                    if (token.equals(targetToken)) return nested;
+                    if (partial == null) partial = nested;
+                }
+                continue;
+            }
+            if (!file.isFile()) continue;
             String fileName = file.getName().toLowerCase();
             if (!(fileName.endsWith(".ttf") || fileName.endsWith(".otf"))) continue;
 
             String token = sanitizeFontToken(fileName.replaceFirst("\\.[^.]+$", ""));
             if (token.equals(targetToken)) return file;
-            if (partial == null && (token.contains(targetToken) || targetToken.contains(token))) {
+            // Unidirectional: only accept files whose token contains the
+            // target. Not vice versa.
+            if (partial == null && token.contains(targetToken)) {
                 partial = file;
             }
         }
@@ -239,9 +337,22 @@ public class FontUtil {
             if (loaded != null) return loaded;
         }
 
-        Font systemFont = resolveAndCalibrateFont(DEFAULT_SYSTEM_FONT, style, size);
-        if (systemFont != null) return systemFont;
-
+        // Default font path always uses the bundled DM Sans. We deliberately
+        // skip {@code resolveAndCalibrateFont} here — the calibration table
+        // in {@link #calibrateFont} downsizes any DM Sans loaded via the
+        // system path (requested 19 → 13.5, requested 14 → 10.5, etc.),
+        // and the bundled file rendering path does NOT calibrate. That
+        // produced a visible size mismatch depending on whether the host
+        // had DM Sans installed:
+        //   * Windows without DM Sans → bundled, full size, looks right.
+        //   * Windows with DM Sans → system → calibrated, small.
+        //   * Linux without DM Sans → bundled, full size, looks right.
+        //   * Linux with DM Sans in {@code ~/.fonts} (Linux compat change
+        //     turned this on) → system → calibrated, small.
+        // Going straight to the bundled file unifies the visual size across
+        // every host. Users who want a different font can still pick it
+        // via the GUI's font selector, which routes through resolveFont +
+        // calibrateFont normally.
         String bundled = style == Font.BOLD ? boldBundledLocation : bundledLocation;
         return getBundledFont(cache, bundled, size, style);
     }

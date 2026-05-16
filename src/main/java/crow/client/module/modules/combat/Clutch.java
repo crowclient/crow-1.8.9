@@ -58,18 +58,18 @@ public class Clutch extends Module {
 
     public Clutch() {
         super("Clutch", ModuleCategory.combat);
-        this.registerSetting(maxBlocks            = new SliderSetting("Max Blocks", 5.0D, 1.0D, 10.0D, 1.0D));
-        this.registerSetting(damageThreshold      = new SliderSetting("Damage Threshold", 2.0D, 0.5D, 6.0D, 0.5D));
-        this.registerSetting(rotationSpeed        = new SliderSetting("Rotation Speed", 48.0D, 4.0D, 60.0D, 0.5D));
-        this.registerSetting(placeDelay           = new SliderSetting("Place Delay (ticks)", 0.0D, 0.0D, 4.0D, 1.0D));
-        this.registerSetting(searchRadius         = new SliderSetting("Search Radius", 4.5D, 2.0D, 5.0D, 0.5D));
-        this.registerSetting(saveFromVoid         = new TickSetting("Save From Void", true));
-        this.registerSetting(cancelIfUnpreventable= new TickSetting("Cancel If Unpreventable", false));
-        this.registerSetting(autoSwap             = new TickSetting("Auto Swap", true));
+        this.registerSetting(maxBlocks            = new SliderSetting("Max blocks", 5.0D, 1.0D, 10.0D, 1.0D));
+        this.registerSetting(damageThreshold      = new SliderSetting("Dmg threshold", 2.0D, 0.5D, 6.0D, 0.5D));
+        this.registerSetting(rotationSpeed        = new SliderSetting("Rot speed", 48.0D, 4.0D, 60.0D, 0.5D));
+        this.registerSetting(placeDelay           = new SliderSetting("Place delay", 0.0D, 0.0D, 4.0D, 1.0D));
+        this.registerSetting(searchRadius         = new SliderSetting("Search range", 4.5D, 2.0D, 5.0D, 0.5D));
+        this.registerSetting(saveFromVoid         = new TickSetting("Save void", true));
+        this.registerSetting(cancelIfUnpreventable= new TickSetting("Cancel if lost", false));
+        this.registerSetting(autoSwap             = new TickSetting("Auto swap", true));
 
-        this.registerSetting(swapBack             = new TickSetting("Swap Back", false));
-        this.registerSetting(swing                = new TickSetting("Swing Arm", false));
-        this.registerSetting(freezeMove           = new TickSetting("Freeze Movement", true));
+        this.registerSetting(swapBack             = new TickSetting("Swap back", false));
+        this.registerSetting(swing                = new TickSetting("Swing", false));
+        this.registerSetting(freezeMove           = new TickSetting("Freeze move", true));
     }
 
     @Override

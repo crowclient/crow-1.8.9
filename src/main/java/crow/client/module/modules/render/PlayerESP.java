@@ -71,20 +71,20 @@ public class PlayerESP extends Module {
         this.registerSetting(rgb = new RGBSetting("RGB", 0, 255, 0));
         this.registerSetting(rainbow = new TickSetting("Rainbow", false));
         this.registerSetting(healthBar = new TickSetting("Health bar", true));
-        this.registerSetting(outline = new TickSetting("Black outline", true));
-        this.registerSetting(cornerLength = new SliderSetting("Corner length", 8, 3, 20, 1));
+        this.registerSetting(outline = new TickSetting("Outline", true));
+        this.registerSetting(cornerLength = new SliderSetting("Corner len", 8, 3, 20, 1));
         cornerLength.visibleWhen(() -> espMode != null && espMode.getMode() == ESPMode.Corner);
-        this.registerSetting(outlineThickness = new SliderSetting("Outline thickness", 2.0D, 1.0D, 6.0D, 0.5D));
+        this.registerSetting(outlineThickness = new SliderSetting("Line width", 2.0D, 1.0D, 6.0D, 0.5D));
         outlineThickness.visibleWhen(() -> espMode != null && espMode.getMode() == ESPMode.Outline);
         this.registerSetting(glowSpread = new SliderSetting("Glow spread", 4.0D, 1.0D, 12.0D, 0.5D));
         glowSpread.visibleWhen(() -> espMode != null && espMode.getMode() == ESPMode.Glow);
         this.registerSetting(expand = new SliderSetting("Expand", 0.0D, -0.3D, 2.0D, 0.1D));
         this.registerSetting(showInvis = new TickSetting("Show invis", true));
-        this.registerSetting(filterNPCs = new TickSetting("Filter NPCs", true));
-        this.registerSetting(redOnDamage = new TickSetting("Red on damage", true));
+        this.registerSetting(filterNPCs = new TickSetting("No NPCs", true));
+        this.registerSetting(redOnDamage = new TickSetting("Red on hurt", true));
         // Default off — ESP keeps rendering through the inventory unless the
         // user opts in to having it disappear there.
-        this.registerSetting(hideInInventory = new TickSetting("Hide in inventory", false));
+        this.registerSetting(hideInInventory = new TickSetting("Hide in inv", false));
     }
 
     @Override

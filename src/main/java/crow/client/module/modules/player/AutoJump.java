@@ -13,7 +13,7 @@ public class AutoJump extends Module {
 
     public AutoJump() {
         super("AutoJump", ModuleCategory.movement);
-        this.registerSetting(b = new TickSetting("Cancel when shifting", true));
+        this.registerSetting(b = new TickSetting("Off shift", true));
     }
 
     public void onDisable() {
