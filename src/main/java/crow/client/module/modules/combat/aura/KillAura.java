@@ -122,6 +122,10 @@ public class KillAura extends Module {
         SilentAim.release(this);
     }
 
+    /**
+     * Runs at {@code Minecraft.runTick} HEAD, which is where the attack has to
+     * happen — see {@link #runAttack()}.
+     */
     @Subscribe
     public void gameLoopCleanup(GameLoopEvent e) {
         if (consumeTeleportReset()) return;
@@ -130,7 +134,9 @@ public class KillAura extends Module {
                 || (target != null && (!target.isEntityAlive()
                     || mc.thePlayer.getDistanceToEntity(target) > reach.getInput()))) {
             clearTargetState();
+            return;
         }
+        runAttack();
     }
 
     @Subscribe
@@ -222,21 +228,32 @@ public class KillAura extends Module {
         }
         req.claimant = this;
         SilentAim.aim(req);
-
-        runAttack();
     }
 
     /**
-     * Attack, still inside UpdateEvent.PRE — i.e. <b>before</b> the C03 flying
-     * packet is written. Vanilla's clickMouse runs in {@code runTick} ahead of
-     * {@code theWorld.updateEntities()}, so a real client's C02 always precedes
-     * that tick's C03. Firing this on POST put the attack after the flying
-     * packet, which is exactly what Grim's Post check looks for.
+     * Attack from {@code runTick} HEAD, which is the only placement that satisfies
+     * every packet-order check at once.
      *
-     * <p>Nothing about the rotation changes between PRE and POST — serverYaw was
-     * settled at {@code runTick} HEAD by {@link SilentAim#beginCycle()} — so the
-     * readiness and aim-stability tests below read the same values they did
-     * before the move.
+     * <p>Vanilla's tick is: {@code clickMouse} (C0A swing, C02 attack) →
+     * {@code rightClickMouse} (C08 place/use) → {@code theWorld.updateEntities()},
+     * which is where {@code onUpdateWalkingPlayer} emits the C0B sprint/sneak
+     * actions and then the C03 flying packet. Three separate checks read that
+     * order:
+     * <ul>
+     *   <li>{@code Post} — any attack after the tick's C03.
+     *   <li>{@code PacketOrderF} — any action packet after a sprint/sneak C0B in
+     *       the same tick. Attacking from UpdateEvent.PRE trips this, because
+     *       {@code onUpdateWalkingPlayer} sends the C0B before the event fires.
+     *   <li>{@code PacketOrderI} — an attack after a place/use packet in the same
+     *       tick, which Auto block's synthesised right-click can produce.
+     * </ul>
+     * runTick HEAD precedes all three, so none of the offending flags are set yet.
+     *
+     * <p>The target and {@code targetYaw} are one tick old here, which is correct
+     * rather than merely tolerable: {@link SilentAim#beginCycle()} has just
+     * stepped the spring toward the target submitted last tick, so
+     * {@link #isAimedAtTarget()} is asking "did the spring arrive where it was
+     * aimed", and vanilla's own mouseover is a tick stale in the same way.
      */
     private void runAttack() {
         if (!Utils.Player.isPlayerInGame() || mc.currentScreen != null

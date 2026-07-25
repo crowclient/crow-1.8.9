@@ -35,10 +35,13 @@ import java.util.concurrent.ThreadLocalRandom;
  * unavoidable: nothing can send a yaw that movement has already consumed.
  *
  * The visual rotation ({@code mc.thePlayer.rotationYaw/Pitch}) is left alone,
- * so the first-person camera keeps following the user's mouse. The rendered
- * player model is swapped onto the silent rotation for the duration of the
- * render call by {@link #beginPlayerRender}, so F5 shows the head and body the
- * server actually sees.
+ * so the first-person camera keeps following the user's mouse. The whole
+ * movement phase, however, runs with {@code rotationYaw} swapped to
+ * {@link #getServerYaw()} by the {@code EntityPlayerSP.onLivingUpdate} mixin —
+ * {@code moveFlying} is not its only consumer, {@code EntityLivingBase.jump()}
+ * reads the field directly for the sprint-jump boost. That swap also leaves the
+ * rendered head and body on the reported yaw, so F5 shows what the server sees;
+ * only pitch needs {@link #beginPlayerRender}.
  *
  * Typical module usage (inside an UpdateEvent.PRE handler):
  * <pre>
@@ -280,39 +283,27 @@ public final class SilentAim {
     }
 
     /**
-     * Point the rendered player model where the server thinks it is looking.
+     * Put the rendered model's <i>pitch</i> on the silent rotation for the length
+     * of the render call. Driven from {@code RenderPlayerEvent.Pre}, undone in
+     * {@link #endPlayerRender}.
      *
-     * <p>Called from {@code RenderPlayerEvent.Pre}, i.e. immediately before
-     * {@code RendererLivingEntity.doRender} reads the head/body/pitch angles, and
-     * undone in {@link #endPlayerRender}. It has to be done at render time rather
-     * than on a tick: {@code EntityPlayer.onLivingUpdate} assigns
-     * {@code rotationYawHead = rotationYaw} every tick, so any tick-time write is
-     * overwritten before the frame is drawn — which is why F5 kept showing the
-     * head following the mouse while the packet carried the aim.
+     * <p>Yaw needs no help here. The movement phase now runs with
+     * {@code rotationYaw} swapped to {@link #getServerYaw()} (see the
+     * {@code EntityPlayerSP.onLivingUpdate} mixin), so
+     * {@code EntityPlayer.onLivingUpdate}'s {@code rotationYawHead = rotationYaw}
+     * and the {@code renderYawOffset} update both land on the reported yaw on
+     * their own, keeping vanilla's head/body lag and its ±75° clamp intact.
      *
-     * <p>Head and body are shifted by the same delta instead of being assigned
-     * outright, so vanilla's head/body lag and its ±75° clamp survive; only the
-     * whole assembly is rotated onto the reported yaw. Pitch is assigned directly
-     * because {@code rotationPitch} <i>is</i> the camera and cannot be touched
-     * outside the render call.
+     * <p>Pitch is the exception: it is restored after the movement phase because
+     * {@code rotationPitch} <i>is</i> the first-person camera, so the only place
+     * it can be corrected is inside the render call.
      */
     public static void beginPlayerRender(net.minecraft.entity.player.EntityPlayer p) {
         if (!active || renderSwapped || p == null || p != mc.thePlayer) return;
 
-        float d = MathHelper.wrapAngleTo180_float(serverYaw - p.rotationYaw);
-        float dPrev = MathHelper.wrapAngleTo180_float(prevServerYaw - p.prevRotationYaw);
-
-        stashYawHead = p.rotationYawHead;
-        stashPrevYawHead = p.prevRotationYawHead;
-        stashBodyYaw = p.renderYawOffset;
-        stashPrevBodyYaw = p.prevRenderYawOffset;
         stashPitch = p.rotationPitch;
         stashPrevPitch = p.prevRotationPitch;
 
-        p.rotationYawHead += d;
-        p.prevRotationYawHead += dPrev;
-        p.renderYawOffset += d;
-        p.prevRenderYawOffset += dPrev;
         p.rotationPitch = serverPitch;
         p.prevRotationPitch = prevServerPitch;
 
@@ -323,10 +314,6 @@ public final class SilentAim {
     public static void endPlayerRender(net.minecraft.entity.player.EntityPlayer p) {
         if (!renderSwapped || p == null || p != mc.thePlayer) return;
 
-        p.rotationYawHead = stashYawHead;
-        p.prevRotationYawHead = stashPrevYawHead;
-        p.renderYawOffset = stashBodyYaw;
-        p.prevRenderYawOffset = stashPrevBodyYaw;
         p.rotationPitch = stashPitch;
         p.prevRotationPitch = stashPrevPitch;
 
@@ -360,10 +347,8 @@ public final class SilentAim {
     private static Object trackedPlayer;
     private static Object trackedWorld;
 
-    // Render-time model swap — see beginPlayerRender.
+    // Render-time pitch swap — see beginPlayerRender.
     private static boolean renderSwapped;
-    private static float stashYawHead, stashPrevYawHead;
-    private static float stashBodyYaw, stashPrevBodyYaw;
     private static float stashPitch, stashPrevPitch;
 
     /** Glide profile used to hand the rotation back to the camera. */

@@ -343,7 +343,28 @@ public abstract class MixinEntityPlayerSP extends AbstractClientPlayer {
         } else
 			this.horseJumpPower = 0.0F;
 
-        super.onLivingUpdate();
+        // Run the whole movement phase on the yaw we are about to report.
+        //
+        // moveFlying was already routed through MoveInputEvent, but that is not
+        // the only consumer: EntityLivingBase.jump() applies the sprint-jump
+        // boost straight off this.rotationYaw (EntityLivingBase:1573-1578), and
+        // both jump() and moveEntityWithHeading live inside super.onLivingUpdate.
+        // Sprint-jumping under silent aim therefore boosted along the camera yaw
+        // while the server rebuilt it from the packet yaw — a ~0.4 motion error
+        // on every sprint-jump, which is a guaranteed Simulation offset.
+        //
+        // Swapping here instead of patching jump() covers every consumer in the
+        // phase at once. It also lands rotationYawHead (set from rotationYaw in
+        // EntityPlayer.onLivingUpdate) and renderYawOffset on the reported yaw,
+        // so the third-person model follows the silent rotation for free.
+        boolean silentYaw = SilentAim.isActive();
+        float cameraYaw = this.rotationYaw;
+        if (silentYaw) this.rotationYaw = SilentAim.getServerYaw();
+        try {
+            super.onLivingUpdate();
+        } finally {
+            if (silentYaw) this.rotationYaw = cameraYaw;
+        }
         if (this.onGround && this.capabilities.isFlying && !this.mc.playerController.isSpectatorMode()) {
             this.capabilities.isFlying = false;
             this.sendPlayerAbilities();
