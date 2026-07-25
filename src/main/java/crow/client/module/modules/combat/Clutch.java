@@ -10,6 +10,7 @@ import crow.client.utils.SilentAim;
 import crow.client.utils.Utils;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockLiquid;
+import net.minecraft.block.state.IBlockState;
 import net.minecraft.init.Blocks;
 import net.minecraft.item.ItemBlock;
 import net.minecraft.item.ItemStack;
@@ -88,7 +89,9 @@ public class Clutch extends Module {
         this.registerSetting(autoSwap             = new TickSetting("Auto swap", true));
 
         this.registerSetting(swapBack             = new TickSetting("Swap back", false));
-        this.registerSetting(swing                = new TickSetting("Swing", false));
+        // Vanilla swings the arm on every successful place (Minecraft#rightClickMouse),
+        // so not swinging is itself the anomaly.
+        this.registerSetting(swing                = new TickSetting("Swing", true));
         this.registerSetting(freezeMove           = new TickSetting("Freeze move", true));
     }
 
@@ -181,7 +184,7 @@ public class Clutch extends Module {
             if (armed) state = State.ROTATING;
         } else {
             // Player has moved; update angles toward the same hit vec.
-            float[] freshRot = computePlacementAngles(currentTarget.hitVec);
+            float[] freshRot = computePlacementAngles(currentTarget.hitVec, leadEyes());
             currentTarget.rotationYaw = freshRot[0];
             currentTarget.rotationPitch = freshRot[1];
             armed = true;
@@ -251,13 +254,15 @@ public class Clutch extends Module {
         req.disableTremor = armed;
         req.claimant = this;
         SilentAim.aim(req);
-        if (!SilentAim.isClaimedBy(this)) return;
 
         // rotReady() tests the rotation going out in *this* tick's look packet,
         // which SilentAim stepped at runTick HEAD — before moveFlying, so the
         // movement and the packet agree. The target submitted just above lands
         // on the next tick, which is why the state machine gates on the value
-        // already applied rather than on the one just requested.
+        // already applied rather than on the one just requested. Deliberately
+        // NOT gated on isClaimedBy here: that reports the *previous* tick's
+        // winner, so gating the transition on it burned the one tick where our
+        // rotation first hits the wire. tickPost re-checks it before placing.
         if (armed && state == State.ROTATING && rotReady()) {
             state = State.PLACING;
         }
@@ -265,49 +270,47 @@ public class Clutch extends Module {
 
     private void tickPost() {
         if (state != State.PLACING || currentTarget == null) return;
+        // One attempt per tick; tickPre promotes us back to PLACING when the
+        // rotation is still on target.
+        state = State.ROTATING;
 
         if (!isValidPlacement(currentTarget)) {
             currentTarget = null;
-            state = State.ROTATING;
             return;
         }
 
-        if (!SilentAim.isClaimedBy(this) || !rotReady()) {
-            state = State.ROTATING;
-            return;
-        }
+        if (!SilentAim.isClaimedBy(this) || !isHoldingPlaceableBlock()) return;
 
-        if (!isHoldingPlaceableBlock()) {
-            currentTarget = null;
-            state = State.ROTATING;
-            return;
-        }
-
-        if (!passesPlacementRaycast(currentTarget)) {
-            currentTarget = null;
-            state = State.ROTATING;
-            return;
-        }
+        // The raycast is the authoritative readiness test: it reproduces
+        // exactly what the server sees this tick (the eye position and the
+        // rotation both go out in this tick's C03, and this runs after that
+        // send). rotReady() is only a cheap pre-filter.
+        MovingObjectPosition hit = placementRaycast(currentTarget);
+        // A miss means the spring has not arrived yet — keep the target and
+        // let it keep converging. Dropping it here re-ran findBestTarget()
+        // next tick, which could pick a different face, restarting the
+        // rotation from scratch every tick so it never settled at all.
+        if (hit == null) return;
 
         // Skip the cosmetic place delay when impact is imminent — every tick
         // of delay can consume the entire valid placement window.
         if (!emergencyPlace && System.currentTimeMillis() - lastPlaceMs < placeDelayMs()) return;
 
-        if (doPlace(currentTarget)) {
+        // Send the point the ray actually struck, not the precomputed face
+        // centre — vanilla sends objectMouseOver.hitVec, and a hit vec that
+        // disagrees with the rotation on the wire is exactly what Grim's
+        // RotationPlace flags.
+        if (doPlace(currentTarget, hit.hitVec)) {
             placedCount++;
             lastPlaceMs = System.currentTimeMillis();
             currentTarget = null;
             if (placedCount >= (int) maxBlocks.getInput()) {
                 placementBudgetExhausted = true;
                 wrapUp();
-                return;
             }
-            // Stay in chain: next tick will re-arm if still in danger.
-            state = State.ROTATING;
         } else {
-            // Place failed (server rejected, client raycast missed, etc).
+            // Place failed (wrong item, controller refused).
             currentTarget = null;
-            state = State.ROTATING;
         }
     }
 
@@ -430,7 +433,29 @@ public class Clutch extends Module {
      */
     private float[] preAimAngles() {
         if (!haveImpact) return null;
-        return computePlacementAngles(new Vec3(impactX, impactY, impactZ));
+        return computePlacementAngles(new Vec3(impactX, impactY, impactZ), leadEyes());
+    }
+
+    /**
+     * Eye position the C03 packet will carry on the tick the rotation we submit
+     * *now* actually lands on.
+     *
+     * <p>This is the difference between clutching and splattering. SilentAim
+     * steps the spring at runTick HEAD, so a target submitted in this tick's
+     * UpdateEvent.PRE first reaches the wire on the next tick. Aiming it at the
+     * angles measured from where the eyes are right now leaves the rotation
+     * permanently one tick of falling behind the geometry. Standing still that
+     * is invisible; falling at 1-3 blocks/tick toward a face a couple of blocks
+     * away it is 5-20 degrees of error that never shrinks, so rotReady()'s
+     * few-degree window simply never opened and the block never got placed.
+     *
+     * <p>moveEntityWithHeading has already applied gravity and drag to motion
+     * by the time UpdateEvent.PRE fires, so pos + motion is next tick's
+     * position exactly — no re-integration needed here.
+     */
+    private Vec3 leadEyes() {
+        return mc.thePlayer.getPositionEyes(1.0F).addVector(
+                mc.thePlayer.motionX, mc.thePlayer.motionY, mc.thePlayer.motionZ);
     }
 
     private int estimatedTicksToFirstPlace() {
@@ -641,7 +666,7 @@ public class Clutch extends Module {
 
         if (!swapToBlockSlot()) return false;
         currentTarget = t;
-        float[] rot = computePlacementAngles(t.hitVec);
+        float[] rot = computePlacementAngles(t.hitVec, leadEyes());
         currentTarget.rotationYaw = rot[0];
         currentTarget.rotationPitch = rot[1];
         rotationTicks = 0;
@@ -665,7 +690,10 @@ public class Clutch extends Module {
         PlaceTarget best = null;
         double bestScore = Double.NEGATIVE_INFINITY;
 
-        int rad = (int) Math.ceil(maxReach);
+        // Cover the blocks that come into reach on the tick our aim actually
+        // lands. A fall moves 1-3 blocks per tick, so a box sized to the
+        // present footprint alone armed a tick too late to ever place in time.
+        int rad = (int) Math.ceil(maxReach + Math.abs(mc.thePlayer.motionY));
         for (int dy = rad; dy >= -rad; dy--) {
             for (int dx = -rad; dx <= rad; dx++) {
                 for (int dz = -rad; dz <= rad; dz++) {
@@ -686,7 +714,7 @@ public class Clutch extends Module {
                                 support.getY() + 0.5D + clickFace.getFrontOffsetY() * 0.48D,
                                 support.getZ() + 0.5D + clickFace.getFrontOffsetZ() * 0.48D);
 
-                        if (eyes.distanceTo(hit) > maxReach) continue;
+                        if (!withinReach(hit)) continue;
 
                         double bx = place.getX() + 0.5D - pX;
                         double by = place.getY() + 0.5D - (pY - 0.5D);
@@ -742,7 +770,7 @@ public class Clutch extends Module {
     }
 
     private double angularDeltaToFaceDeg(Vec3 hit) {
-        float[] rot = computePlacementAngles(hit);
+        float[] rot = computePlacementAngles(hit, mc.thePlayer.getPositionEyes(1.0F));
         float yawDiff = Math.abs(MathHelper.wrapAngleTo180_float(rot[0] - SilentAim.getServerYaw()));
         float pitchDiff = Math.abs(rot[1] - SilentAim.getServerPitch());
         return yawDiff + pitchDiff;
@@ -755,7 +783,7 @@ public class Clutch extends Module {
         if (!isExposedFace(t.support, t.face)) return false;
         if (placeWouldCollideWithPlayer(t.placePos)) return false;
         if (projectedInterceptTick(t.placePos) < 0) return false;
-        if (mc.thePlayer.getPositionEyes(1.0F).distanceTo(t.hitVec) > placementReach()) return false;
+        if (!withinReach(t.hitVec)) return false;
         return true;
     }
 
@@ -765,13 +793,30 @@ public class Clutch extends Module {
         return Math.min(searchRadius.getInput(), controllerReach);
     }
 
-    /** Final server-view validation, performed in POST immediately before C08. */
-    private boolean passesPlacementRaycast(PlaceTarget t) {
-        if (t == null || mc.theWorld == null || mc.thePlayer == null) return false;
+    /**
+     * Reachable from where the eyes are now, or from where they will be on the
+     * tick the aim request submitted this tick actually lands. Testing only the
+     * present position discards every target that is about to come into range —
+     * during a fall that is most of them, and by the time one passes the test
+     * there is no longer time left to rotate onto it.
+     */
+    private boolean withinReach(Vec3 hit) {
+        double reach = placementReach();
+        return mc.thePlayer.getPositionEyes(1.0F).distanceTo(hit) <= reach
+                || leadEyes().distanceTo(hit) <= reach;
+    }
+
+    /**
+     * Final server-view validation, performed in POST immediately before C08.
+     * Returns the hit when the rotation on the wire really does land on the
+     * intended face, so the caller can send that exact hit vec.
+     */
+    private MovingObjectPosition placementRaycast(PlaceTarget t) {
+        if (t == null || mc.theWorld == null || mc.thePlayer == null) return null;
 
         Vec3 eyes = mc.thePlayer.getPositionEyes(1.0F);
         Vec3 look = rotationVector(SilentAim.getServerPitch(), SilentAim.getServerYaw());
-        double reach = placementReach() + 0.05D;
+        double reach = placementReach() + 0.5D;
         Vec3 end = eyes.addVector(
                 look.xCoord * reach,
                 look.yCoord * reach,
@@ -780,7 +825,7 @@ public class Clutch extends Module {
         return hit != null
                 && hit.typeOfHit == MovingObjectPosition.MovingObjectType.BLOCK
                 && t.support.equals(hit.getBlockPos())
-                && hit.sideHit == t.face;
+                && hit.sideHit == t.face ? hit : null;
     }
 
     private Vec3 rotationVector(float pitch, float yaw) {
@@ -791,8 +836,7 @@ public class Clutch extends Module {
         return new Vec3(yawSin * pitchCos, pitchSin, yawCos * pitchCos);
     }
 
-    private float[] computePlacementAngles(Vec3 target) {
-        Vec3 eyes = mc.thePlayer.getPositionEyes(1.0F);
+    private float[] computePlacementAngles(Vec3 target, Vec3 eyes) {
         double dx = target.xCoord - eyes.xCoord;
         double dy = target.yCoord - eyes.yCoord;
         double dz = target.zCoord - eyes.zCoord;
@@ -802,34 +846,34 @@ public class Clutch extends Module {
         return new float[]{yaw, MathHelper.clamp_float(pitch, -89.5F, 89.5F)};
     }
 
+    /**
+     * Cheap pre-filter for "is it worth raycasting this tick".
+     *
+     * <p>Compares against the angles measured from where the eyes are *now*,
+     * not the lead angles in {@code currentTarget} — {@code serverYaw} was
+     * produced by last tick's request, whose target was this tick's predicted
+     * eye position, so present-tense angles are the like-for-like comparison.
+     *
+     * <p>The window is deliberately loose. {@link #placementRaycast} decides
+     * whether the shot is actually on the face, and a miss now costs nothing
+     * because tickPost keeps the target and retries next tick. A tight window
+     * only delays the first attempt.
+     */
     private boolean rotReady() {
         if (currentTarget == null) return false;
-        float yawDiff = Math.abs(MathHelper.wrapAngleTo180_float(
-                currentTarget.rotationYaw - SilentAim.getServerYaw()));
-        float pitchDiff = Math.abs(currentTarget.rotationPitch - SilentAim.getServerPitch());
-
-        // Tighter threshold at higher speeds (spring converges fast → can
-        // afford accuracy), looser at low speeds so the spring doesn't
-        // oscillate inside the window without ever settling.
-        float speed = (float) rotationSpeed.getInput();
-        float speedT = MathHelper.clamp_float((speed - 4f) / (60f - 4f), 0f, 1f);
-        float threshold = 3.0F - speedT * 1.0F;   // 3° at slow → 2° at fast
-
-        // Slight relaxation when the ground is arriving, so a fraction of a
-        // degree of settle tremor never costs us the save. Deliberately small:
-        // at 4.5 blocks reach even 12 deg is ~0.39 blocks of ray drift, enough
-        // to miss the intended face and have the server reject the placement.
-        if (emergencyPlace) threshold += 1.5F;
-
+        float[] now = computePlacementAngles(currentTarget.hitVec, mc.thePlayer.getPositionEyes(1.0F));
+        float yawDiff = Math.abs(MathHelper.wrapAngleTo180_float(now[0] - SilentAim.getServerYaw()));
+        float pitchDiff = Math.abs(now[1] - SilentAim.getServerPitch());
+        float threshold = emergencyPlace ? 12.0F : 6.0F;
         return yawDiff <= threshold && pitchDiff <= threshold;
     }
 
-    private boolean doPlace(PlaceTarget t) {
+    private boolean doPlace(PlaceTarget t, Vec3 hitVec) {
         if (!isHoldingPlaceableBlock()) return false;
         ItemStack held = mc.thePlayer.getHeldItem();
 
         boolean placed = mc.playerController.onPlayerRightClick(
-                mc.thePlayer, mc.theWorld, held, t.support, t.face, t.hitVec);
+                mc.thePlayer, mc.theWorld, held, t.support, t.face, hitVec);
 
         if (placed && swing.isToggled()) mc.thePlayer.swingItem();
 
@@ -866,16 +910,27 @@ public class Clutch extends Module {
     }
 
     private boolean isFullPlacementSupport(BlockPos pos) {
-        Block block = mc.theWorld.getBlockState(pos).getBlock();
+        IBlockState state = mc.theWorld.getBlockState(pos);
+        Block block = state.getBlock();
         if (block == Blocks.air) return false;
         if (block instanceof BlockLiquid) return false;
         if (block.getMaterial().isReplaceable()) return false;
         // A material-only check accepts signs and torches; merely requiring a
-        // collision box still accepts slabs and fences. Exact face raytracing
-        // and full-cube placement both require a complete support surface.
-        if (!block.isFullBlock() || !block.isFullCube()) return false;
-        return block.getCollisionBoundingBox(
-                mc.theWorld, pos, mc.theWorld.getBlockState(pos)) != null;
+        // collision box still accepts slabs and fences, whose faces are not
+        // where the face-centre hit vec says they are. So require a full
+        // 1x1x1 collision box.
+        //
+        // This used to test isFullBlock() && isFullCube(). isFullBlock is just
+        // isOpaqueCube() captured at construction, so every non-opaque cube —
+        // glass and stained glass above all — was rejected as a support. That
+        // is precisely the block you are falling past on a bedwars bridge, and
+        // it made the module useless there. The geometry, not the opacity, is
+        // what the hit vec depends on.
+        AxisAlignedBB bb = block.getCollisionBoundingBox(mc.theWorld, pos, state);
+        return bb != null
+                && bb.maxX - bb.minX > 0.999D
+                && bb.maxY - bb.minY > 0.999D
+                && bb.maxZ - bb.minZ > 0.999D;
     }
 
     private void resetRuntime(boolean restoreSlot) {
