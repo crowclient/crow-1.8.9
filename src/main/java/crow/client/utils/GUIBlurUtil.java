@@ -43,6 +43,38 @@ public final class GUIBlurUtil {
     private static final java.nio.FloatBuffer SCRATCH_MV =
             org.lwjgl.BufferUtils.createFloatBuffer(16);
 
+    private static final java.nio.IntBuffer SCRATCH_SCISSOR =
+            org.lwjgl.BufferUtils.createIntBuffer(16);
+
+    /**
+     * Clears the stencil buffer inside {@code (px, py, pw, ph)} only.
+     *
+     * <p>ponytail: {@code glClear} is bounded by the scissor box and nothing
+     * else, so the previous unscissored clear wiped the stencil for the entire
+     * framebuffer. A server HUD lights up ~8 blurred panels — arraylist,
+     * scoreboard, targethud, radar, logo, stats, keystrokes — and each one paid
+     * a full-screen stencil clear to mask a small rectangle. The caller's
+     * scissor state is saved and restored exactly, so callers that rely on
+     * their own scissor to clip the blur are unaffected.
+     */
+    private static void clearStencilIn(int px, int py, int pw, int ph) {
+        boolean hadScissor = GL11.glIsEnabled(GL11.GL_SCISSOR_TEST);
+        SCRATCH_SCISSOR.clear();
+        GL11.glGetInteger(GL11.GL_SCISSOR_BOX, SCRATCH_SCISSOR);
+        int sx = SCRATCH_SCISSOR.get(0), sy = SCRATCH_SCISSOR.get(1);
+        int sw = SCRATCH_SCISSOR.get(2), sh = SCRATCH_SCISSOR.get(3);
+
+        // 2px margin: px/py/pw/ph are truncated from float GUI coords, and a
+        // sliver of stale stencil at the edge shows up as a hard seam.
+        GL11.glEnable(GL11.GL_SCISSOR_TEST);
+        GL11.glScissor(px - 2, py - 2, pw + 4, ph + 4);
+        GL11.glClearStencil(0);
+        GL11.glClear(GL11.GL_STENCIL_BUFFER_BIT);
+
+        GL11.glScissor(sx, sy, sw, sh);
+        if (!hadScissor) GL11.glDisable(GL11.GL_SCISSOR_TEST);
+    }
+
     private static final Map<Long, Framebuffer> fboCache = new HashMap<>();
 
     private static int lastDisplayW = -1;
@@ -251,8 +283,7 @@ public final class GUIBlurUtil {
             float cornerR = Math.max(0f, roundness);
             GL11.glEnable(GL11.GL_STENCIL_TEST);
             GL11.glStencilMask(0xFF);
-            GL11.glClearStencil(0);
-            GL11.glClear(GL11.GL_STENCIL_BUFFER_BIT);
+            clearStencilIn(px, py, pw, ph);
             GL11.glStencilFunc(GL11.GL_ALWAYS, 1, 0xFF);
             GL11.glStencilOp(GL11.GL_KEEP, GL11.GL_KEEP, GL11.GL_REPLACE);
             GL11.glColorMask(false, false, false, false);
@@ -490,8 +521,7 @@ public final class GUIBlurUtil {
 
             GL11.glEnable(GL11.GL_STENCIL_TEST);
             GL11.glStencilMask(0xFF);
-            GL11.glClearStencil(0);
-            GL11.glClear(GL11.GL_STENCIL_BUFFER_BIT);
+            clearStencilIn(px, py, pw, ph);
             GL11.glStencilFunc(GL11.GL_ALWAYS, 1, 0xFF);
             GL11.glStencilOp(GL11.GL_KEEP, GL11.GL_KEEP, GL11.GL_REPLACE);
             GL11.glColorMask(false, false, false, false);

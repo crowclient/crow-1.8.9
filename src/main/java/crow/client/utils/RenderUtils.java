@@ -38,6 +38,28 @@ public class RenderUtils {
     private static final java.nio.FloatBuffer SCRATCH_PR = BufferUtils.createFloatBuffer(16);
     private static final java.nio.IntBuffer   SCRATCH_VP = BufferUtils.createIntBuffer(16);
 
+    // ponytail: `new ScaledResolution(mc)` appeared at 29 callsites, most of them
+    // per-frame render paths and one of them glScissor(), which runs per clipped
+    // widget. The result only changes when the window is resized or the GUI
+    // scale option changes, so cache it and rebuild on those three inputs.
+    private static ScaledResolution cachedScaled;
+    private static int cachedScaledW = -1, cachedScaledH = -1, cachedGuiScale = -1;
+
+    public static ScaledResolution scaled() {
+        Minecraft mc = Crow.mc;
+        int gs = mc.gameSettings != null ? mc.gameSettings.guiScale : 0;
+        if (cachedScaled == null
+                || cachedScaledW != mc.displayWidth
+                || cachedScaledH != mc.displayHeight
+                || cachedGuiScale != gs) {
+            cachedScaled = new ScaledResolution(mc);
+            cachedScaledW = mc.displayWidth;
+            cachedScaledH = mc.displayHeight;
+            cachedGuiScale = gs;
+        }
+        return cachedScaled;
+    }
+
     public static void syncGlStateBlend() {
         if (GL11.glIsEnabled(GL11.GL_BLEND)) {
             GlStateManager.disableBlend();
@@ -108,7 +130,7 @@ public class RenderUtils {
     }
 
     public static void glScissor(int x, int y, int width, int height) {
-        int scale = new ScaledResolution(Crow.mc).getScaleFactor();
+        int scale = scaled().getScaleFactor();
         int scissorY = Crow.mc.displayHeight - (y + height) * scale;
         GL11.glScissor(x * scale, scissorY, width * scale, height * scale);
     }

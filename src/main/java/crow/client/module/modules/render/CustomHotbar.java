@@ -117,7 +117,7 @@ public class CustomHotbar extends Module {
         float dt = Math.min(0.1F, (now - lastFrameMs) / 1000.0F);
         lastFrameMs = now;
 
-        ScaledResolution sr = new ScaledResolution(mc);
+        ScaledResolution sr = crow.client.utils.RenderUtils.scaled();
         int   screenW    = sr.getScaledWidth();
         int   screenH    = sr.getScaledHeight();
         float uiScale    = (float) scale.getInput();

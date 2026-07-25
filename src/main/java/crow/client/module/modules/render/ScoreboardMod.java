@@ -80,7 +80,7 @@ public class ScoreboardMod extends Module {
             return;
         }
 
-        ScaledResolution sr = new ScaledResolution(mc);
+        ScaledResolution sr = crow.client.utils.RenderUtils.scaled();
         int screenW = sr.getScaledWidth();
         int screenH = sr.getScaledHeight();
         ScoreObjective objective = getActiveObjective();

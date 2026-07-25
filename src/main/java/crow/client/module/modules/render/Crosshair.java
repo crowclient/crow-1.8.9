@@ -40,7 +40,7 @@ public class Crosshair extends Module {
         if (!Utils.Player.isPlayerInGame()) return;
         if ((mc.currentScreen != null && !(mc.currentScreen instanceof GuiChat)) || mc.gameSettings.showDebugInfo) return;
 
-        ScaledResolution sr = new ScaledResolution(mc);
+        ScaledResolution sr = crow.client.utils.RenderUtils.scaled();
         float cx = sr.getScaledWidth() / 2.0F;
         float cy = sr.getScaledHeight() / 2.0F;
         float length = 6.5F;

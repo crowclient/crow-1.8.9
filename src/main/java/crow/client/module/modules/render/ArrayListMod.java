@@ -91,7 +91,7 @@ public class ArrayListMod extends Module {
             return;
         }
 
-        ScaledResolution sr = new ScaledResolution(mc);
+        ScaledResolution sr = crow.client.utils.RenderUtils.scaled();
         int screenW = sr.getScaledWidth();
         int screenH = sr.getScaledHeight();
 
@@ -121,7 +121,7 @@ public class ArrayListMod extends Module {
 
         int maxWidth = 0;
         for (Module module : renderModules) {
-            maxWidth = Math.max(maxWidth, getTextWidth(getArrayListText(module)));
+            maxWidth = Math.max(maxWidth, frameWidth(module));
         }
 
         float animatedHeight = 0.0F;
@@ -172,8 +172,8 @@ public class ArrayListMod extends Module {
                 rowProgress[idx] = progress;
                 if (progress <= 0.03F) { idx++; continue; }
 
-                String displayText = getArrayListText(module);
-                int textWidth = getTextWidth(displayText);
+                String displayText = frameText(module);
+                int textWidth = frameWidth(module);
                 int fullBgX1 = alignRight ? posX - textWidth - lineGap - OUTER_PADDING : posX;
                 int fullBgX2 = alignRight ? posX : posX + textWidth + lineGap + OUTER_PADDING;
                 int slide = (int) ((1.0F - progress) * (textWidth + 10));
@@ -307,16 +307,30 @@ public class ArrayListMod extends Module {
 
     }
 
+    // ponytail: per-frame caches. The old comparator called
+    // getTextWidth(getArrayListText(m)) inside the sort, so each of the ~150
+    // comparisons rebuilt two strings and measured two strings glyph-by-glyph.
+    // Now each visible module is formatted and measured exactly once per frame.
+    private final Map<Module, String> frameText = new HashMap<>();
+    private final Map<Module, Integer> frameWidth = new HashMap<>();
+    private final List<Module> renderListBuf = new ArrayList<>();
+
     private List<Module> buildRenderList() {
-        List<Module> result = new ArrayList<>();
-        for (Module module : Crow.moduleManager.getModules()) {
+        renderListBuf.clear();
+        frameText.clear();
+        frameWidth.clear();
+
+        List<Module> all = Crow.moduleManager.getModules();
+        for (int i = 0; i < all.size(); i++) {
+            Module module = all.get(i);
             if (!module.showInHud() || module.moduleCategory() == ModuleCategory.themes) {
                 continue;
             }
             if (hideRenderModules.isToggled() && module.moduleCategory() == ModuleCategory.render) {
                 continue;
             }
-            float progress = moduleAnimations.containsKey(module) ? moduleAnimations.get(module) : (module.isEnabled() ? 1.0F : 0.0F);
+            Float cached = moduleAnimations.get(module);
+            float progress = cached != null ? cached : (module.isEnabled() ? 1.0F : 0.0F);
             float target = module.isEnabled() ? 1.0F : 0.0F;
             progress += (target - progress) * 0.16F;
             if (Math.abs(target - progress) < 0.008F) {
@@ -324,11 +338,26 @@ public class ArrayListMod extends Module {
             }
             moduleAnimations.put(module, progress);
             if (progress > 0.02F) {
-                result.add(module);
+                String text = getArrayListText(module);
+                frameText.put(module, text);
+                frameWidth.put(module, getTextWidth(text));
+                renderListBuf.add(module);
             }
         }
-        result.sort((a, b) -> Integer.compare(getTextWidth(getArrayListText(b)), getTextWidth(getArrayListText(a))));
-        return result;
+        renderListBuf.sort((a, b) -> Integer.compare(frameWidth.get(b), frameWidth.get(a)));
+        return renderListBuf;
+    }
+
+    /** Formatted arraylist text for this frame; falls back for off-frame callers. */
+    private String frameText(Module module) {
+        String cached = frameText.get(module);
+        return cached != null ? cached : getArrayListText(module);
+    }
+
+    /** Measured width for this frame; falls back for off-frame callers. */
+    private int frameWidth(Module module) {
+        Integer cached = frameWidth.get(module);
+        return cached != null ? cached : getTextWidth(getArrayListText(module));
     }
 
     private void handleDrag(int screenW, int screenH, List<Module> active) {
@@ -350,7 +379,8 @@ public class ArrayListMod extends Module {
                     return;
                 }
 
-                int widest = active.stream().mapToInt(m -> getTextWidth(getArrayListText(m))).max().orElse(0);
+                int widest = 0;
+                for (Module m : active) widest = Math.max(widest, frameWidth(m));
                 int rowH = getTextHeight() + VERT_PAD * 2;
                 int totalH = 0;
                 for (Module module : active) {
