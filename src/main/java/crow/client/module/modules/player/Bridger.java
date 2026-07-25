@@ -331,6 +331,10 @@ public class Bridger extends Module {
         // framebuffer at full opacity, then blit that FBO's texture back
         // onto the HUD as a textured quad with our alpha modulator.
         try {
+            // Nothing else on the HUD may leave a program bound — the SDF
+            // rect shader that painted the pill restores it, GUIBlurUtil's
+            // does too, but neither is guaranteed on their error paths.
+            org.lwjgl.opengl.GL20.glUseProgram(0);
             if (iconFbo == null) {
                 iconFbo = new Framebuffer(ICON_FBO_SIZE, ICON_FBO_SIZE, true);
                 iconFbo.setFramebufferFilter(GL11.GL_LINEAR);
@@ -389,9 +393,13 @@ public class Bridger extends Module {
             GlStateManager.popMatrix();
 
             iconFbo.unbindFramebuffer();
+            // Restores the display-sized viewport too. The matrix push/pop
+            // pair above already restored both matrices, so calling
+            // setupOverlayRendering() here would only do harm: it
+            // loadIdentity's the modelview, dropping the caller's zoom
+            // transform so the icon and count draw unscaled while the pill
+            // behind them scales.
             prevFbo.bindFramebuffer(true);
-            // Restore the 2D HUD projection MC was using before we rendered.
-            mc.entityRenderer.setupOverlayRendering();
 
             // --- Pass 2: blit FBO texture to HUD with our alpha -----
             GlStateManager.enableTexture2D();
@@ -406,6 +414,14 @@ public class Bridger extends Module {
             GlStateManager.tryBlendFuncSeparate(
                     GL11.GL_ONE, GL11.GL_ONE_MINUS_SRC_ALPHA,
                     GL11.GL_ONE, GL11.GL_ONE_MINUS_SRC_ALPHA);
+            // GlStateManager.color() is cached and skips redundant calls, but
+            // plenty of HUD code (GUIBlurUtil, FontUtil) sets the real colour
+            // with a raw glColor4f. That leaves the cache reading (1,1,1,1)
+            // while GL actually holds an alpha below 1 — GUIBlurUtil's pill
+            // backdrop leaves 0.65 — and this quad is the one thing here that
+            // gets modulated by it, which is why the block came out slightly
+            // transparent. Two calls force the cache to miss.
+            GlStateManager.color(0.0F, 0.0F, 0.0F, 0.0F);
             GlStateManager.color(fadeAlpha, fadeAlpha, fadeAlpha, fadeAlpha);
 
             GL11.glBindTexture(GL11.GL_TEXTURE_2D, iconFbo.framebufferTexture);
