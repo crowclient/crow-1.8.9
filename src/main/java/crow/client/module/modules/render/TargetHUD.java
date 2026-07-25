@@ -258,7 +258,7 @@ public class TargetHUD extends Module {
         float depth = OUT.get(2);
         if (depth < 0.0F || depth > 1.0F) return;
 
-        int sf = Math.max(1, new ScaledResolution(mc).getScaleFactor());
+        int sf = Math.max(1, crow.client.utils.RenderUtils.scaled().getScaleFactor());
         followScreenX = OUT.get(0) / sf;
         followScreenY = (VP.get(3) - OUT.get(1)) / sf;
         followValid = true;
@@ -273,7 +273,7 @@ public class TargetHUD extends Module {
         if (!updateFade()) return;
         if (target == null) return;
 
-        ScaledResolution sr = new ScaledResolution(mc);
+        ScaledResolution sr = crow.client.utils.RenderUtils.scaled();
         int screenW = sr.getScaledWidth();
         int screenH = sr.getScaledHeight();
 

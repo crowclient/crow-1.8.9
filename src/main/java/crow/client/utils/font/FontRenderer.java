@@ -18,6 +18,27 @@ public class FontRenderer extends CFont {
 
     boolean additiveBlend = false;
 
+    // ponytail: one glBegin/glEnd per *string* instead of per *character*.
+    // A HUD frame draws ~500 glyphs; the old code paid two driver state
+    // transitions each. The batch only has to break where GL forbids state
+    // changes inside a primitive: texture/colour swaps (format codes) and the
+    // strike/underline lines. Both are rare, so in practice it's one pair.
+    private boolean batching;
+
+    private void batchBegin() {
+        if (!batching) {
+            GL11.glBegin(GL11.GL_TRIANGLES);
+            batching = true;
+        }
+    }
+
+    private void batchEnd() {
+        if (batching) {
+            GL11.glEnd();
+            batching = false;
+        }
+    }
+
     public FontRenderer(Font font, boolean antiAlias, boolean fractionalMetrics) {
         super(font, antiAlias, fractionalMetrics);
         this.setupMinecraftColorcodes();
@@ -107,13 +128,15 @@ public class FontRenderer extends CFont {
             char character = text.charAt(index);
 
             if (character == '\u00a7') {
-                int colorIndex = 21;
+                // Texture/colour changes below are illegal inside a primitive.
+                batchEnd();
 
-                try {
-                    colorIndex = "0123456789abcdefklmnor".indexOf(text.charAt(index + 1));
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
+                // ponytail: bounds check instead of catching StringIndexOutOfBounds.
+                // A string ending in a bare "\u00a7" used to print a stack trace every
+                // frame it was drawn.
+                int colorIndex = index + 1 < text.length()
+                        ? colorcodeIdentifiers.indexOf(text.charAt(index + 1))
+                        : 21;
 
                 if (colorIndex < 16) {
                     bold = false;
@@ -179,9 +202,8 @@ public class FontRenderer extends CFont {
 
                 ++index;
             } else if (character < currentData.length) {
-                GL11.glBegin(GL11.GL_TRIANGLES);
+                batchBegin();
                 this.drawChar(currentData, character, (float) x, (float) y);
-                GL11.glEnd();
 
                 if (strikethrough)
 					this.drawLine(x, y + (double) (currentData[character].height / 2),
@@ -197,6 +219,7 @@ public class FontRenderer extends CFont {
             }
         }
 
+        batchEnd();
         GlStateManager.resetColor();
         GL11.glPopMatrix();
         GL11.glColor4f(1, 1, 1, 1);
@@ -241,13 +264,15 @@ public class FontRenderer extends CFont {
             char character = text.charAt(index);
 
             if (character == '\u00a7') {
-                int colorIndex = 21;
+                // Texture/colour changes below are illegal inside a primitive.
+                batchEnd();
 
-                try {
-                    colorIndex = "0123456789abcdefklmnor".indexOf(text.charAt(index + 1));
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
+                // ponytail: bounds check instead of catching StringIndexOutOfBounds.
+                // A string ending in a bare "\u00a7" used to print a stack trace every
+                // frame it was drawn.
+                int colorIndex = index + 1 < text.length()
+                        ? colorcodeIdentifiers.indexOf(text.charAt(index + 1))
+                        : 21;
 
                 if (colorIndex < 16) {
                     bold = false;
@@ -313,9 +338,8 @@ public class FontRenderer extends CFont {
 
                 ++index;
             } else if (character < currentData.length) {
-                GL11.glBegin(GL11.GL_TRIANGLES);
+                batchBegin();
                 this.drawChar(currentData, character, (float) x, (float) y);
-                GL11.glEnd();
 
                 if (strikethrough)
 					this.drawLine(x, y + (double) (currentData[character].height / 2),
@@ -331,6 +355,7 @@ public class FontRenderer extends CFont {
             }
         }
 
+        batchEnd();
         GL11.glTexParameterf(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
 
         GL11.glPopMatrix();
@@ -376,13 +401,15 @@ public class FontRenderer extends CFont {
             char character = text.charAt(index);
 
             if (character == '\u00a7') {
-                int colorIndex = 21;
+                // Texture/colour changes below are illegal inside a primitive.
+                batchEnd();
 
-                try {
-                    colorIndex = "0123456789abcdefklmnor".indexOf(text.charAt(index + 1));
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
+                // ponytail: bounds check instead of catching StringIndexOutOfBounds.
+                // A string ending in a bare "\u00a7" used to print a stack trace every
+                // frame it was drawn.
+                int colorIndex = index + 1 < text.length()
+                        ? colorcodeIdentifiers.indexOf(text.charAt(index + 1))
+                        : 21;
 
                 if (colorIndex < 16) {
                     bold = false;
@@ -448,9 +475,8 @@ public class FontRenderer extends CFont {
 
                 ++index;
             } else if (character < currentData.length) {
-                GL11.glBegin(GL11.GL_TRIANGLES);
+                batchBegin();
                 this.drawChar(currentData, character, (float) x, (float) y);
-                GL11.glEnd();
 
                 if (strikethrough)
 					this.drawLine(x, y + (double) (currentData[character].height / 2),
@@ -466,6 +492,7 @@ public class FontRenderer extends CFont {
             }
         }
 
+        batchEnd();
         GL11.glHint(GL11.GL_POLYGON_SMOOTH_HINT, GL11.GL_DONT_CARE);
         GL11.glPopMatrix();
         GL11.glColor4f(1, 1, 1, 1);
@@ -554,6 +581,7 @@ public class FontRenderer extends CFont {
     }
 
     private void drawLine(double x2, double y2, double x1, double y1, float width) {
+        batchEnd(); // strike/underline can't be emitted inside the glyph batch
         GL11.glDisable(GL11.GL_TEXTURE_2D);
         GL11.glLineWidth(width);
         GL11.glBegin(GL11.GL_LINES);

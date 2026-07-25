@@ -106,7 +106,7 @@ public class Notification {
 
     private int stackY(int stackIndex, int height, float anim) {
         Position pos = Notifications.getPosition();
-        ScaledResolution sr = new ScaledResolution(Minecraft.getMinecraft());
+        ScaledResolution sr = crow.client.utils.RenderUtils.scaled();
         switch (pos) {
             case BottomRight: {
                 int restY = sr.getScaledHeight() - 6 - (stackIndex + 1) * (height + GAP);
@@ -125,7 +125,7 @@ public class Notification {
 
     private int stackX(int width) {
         Position pos = Notifications.getPosition();
-        ScaledResolution sr = new ScaledResolution(Minecraft.getMinecraft());
+        ScaledResolution sr = crow.client.utils.RenderUtils.scaled();
         switch (pos) {
             case BottomRight:
             case TopRight:

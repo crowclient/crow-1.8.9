@@ -447,14 +447,18 @@ public abstract class MixinEntity {
 
     @Overwrite
     public void moveFlying(float strafe, float forward, float fric) {
-        MoveInputEvent e = new MoveInputEvent(strafe, forward, fric, this.rotationYaw);
-        if((Object) this == Minecraft.getMinecraft().thePlayer)
+        // ponytail: the event was allocated for every entity that moves, every
+        // tick, then only posted for the player. moveFlying runs for every mob
+        // in the world — on a busy server that was pure garbage.
+        float yaw = this.rotationYaw;
+        if ((Object) this == Minecraft.getMinecraft().thePlayer) {
+            MoveInputEvent e = new MoveInputEvent(strafe, forward, fric, this.rotationYaw);
             Crow.eventBus.post(e);
-
-        strafe = e.getStrafe();
-        forward = e.getForward();
-        fric = e.getFriction();
-        float yaw = e.getYaw();
+            strafe = e.getStrafe();
+            forward = e.getForward();
+            fric = e.getFriction();
+            yaw = e.getYaw();
+        }
 
         float f = (strafe * strafe) + (forward * forward);
 

@@ -350,11 +350,15 @@ public class ModuleManager {
 
     public void addModule(Module m) {
         modules.add(m);
+        byClazz.put(m.getClass(), m);
+        mergedCache = null;
     }
 
     public void removeModuleByName(String s) {
         Module m = getModuleByName(s);
         modules.remove(m);
+        if (m != null) byClazz.remove(m.getClass());
+        mergedCache = null;
     }
 
     public Module getModuleByName(String name) {
@@ -367,26 +371,49 @@ public class ModuleManager {
         return null;
     }
 
+    // ponytail: AntiBot.renderBot() called this once per player per frame, and it
+    // was a linear scan of ~150 modules. On a full lobby that's millions of
+    // comparisons a second. Map lookup instead — populated in addModule().
+    private final java.util.Map<Class<?>, Module> byClazz = new java.util.HashMap<>();
+
     public Module getModuleByClazz(Class<? extends Module> c) {
         if (!initialized)
             return null;
 
-        for (Module module : modules)
-			if (module.getClass().equals(c))
-                return module;
-        return null;
+        return byClazz.get(c);
     }
 
+    // ponytail: getModules() merged ~150 modules into a throwaway ArrayList on
+    // every call, and it's called every tick and every frame. The three source
+    // lists only change when a module is added or removed, so cache the merge
+    // and invalidate on a size change.
+    private List<Module> mergedCache;
+    private int mergedCacheSize = -1;
+
     public List<Module> getModules() {
-        ArrayList<Module> allModules = new ArrayList<>(modules);
+        List<? extends Module> cfg = null;
+        List<? extends Module> gui = null;
         try {
-            allModules.addAll(Crow.configManager.configModuleManager.getConfigModules());
+            cfg = Crow.configManager.configModuleManager.getConfigModules();
         } catch (NullPointerException ignored) {
         }
         try {
-            allModules.addAll(guiModuleManager.getModules());
+            gui = guiModuleManager.getModules();
         } catch (NullPointerException ignored) {
         }
+
+        int size = modules.size() + (cfg == null ? 0 : cfg.size()) + (gui == null ? 0 : gui.size());
+        if (mergedCache != null && mergedCacheSize == size) {
+            return mergedCache;
+        }
+
+        ArrayList<Module> allModules = new ArrayList<>(size);
+        allModules.addAll(modules);
+        if (cfg != null) allModules.addAll(cfg);
+        if (gui != null) allModules.addAll(gui);
+
+        mergedCache = allModules;
+        mergedCacheSize = size;
         return allModules;
     }
 
