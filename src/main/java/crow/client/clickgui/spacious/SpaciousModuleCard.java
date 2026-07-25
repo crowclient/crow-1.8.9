@@ -19,6 +19,7 @@ import crow.client.module.setting.impl.SliderSetting;
 import crow.client.module.setting.impl.TextSetting;
 import crow.client.module.setting.impl.TickSetting;
 import crow.client.utils.Animation;
+import crow.client.utils.Icons;
 import crow.client.utils.RenderUtils;
 import crow.client.utils.font.FontUtil;
 
@@ -36,8 +37,10 @@ import crow.client.utils.font.FontUtil;
  */
 public class SpaciousModuleCard {
 
-    public static final int CARD_HEIGHT = 18;
-    private static final int CARD_RADIUS = 5;
+    public static final int CARD_HEIGHT = 22;
+    /** Square: rows tile flush against each other and against the column
+     *  edges, so there is no seam between a row and the panel behind it. */
+    private static final int CARD_RADIUS = 0;
     private static final int SETTINGS_INDENT = 6;
     private static final int SETTING_GAP = 2;
     private static final int SETTING_TOP_PAD = 5;
@@ -113,6 +116,17 @@ public class SpaciousModuleCard {
         return 18;
     }
 
+    /** Short key label for the bind badge, or null when unbound. */
+    private String bindLabel() {
+        if (!mod.isBindable() || mod.getKeycode() == 0) return null;
+        try {
+            String name = org.lwjgl.input.Keyboard.getKeyName(mod.getKeycode());
+            return name == null || name.isEmpty() ? null : name;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
     public void draw(int mouseX, int mouseY, CompactPalette palette) {
         boolean hovered = isMouseOverHeader(mouseX, mouseY);
 
@@ -130,28 +144,79 @@ public class SpaciousModuleCard {
         int totalHeight = getTotalHeight();
         int themeColor = 0xFF000000 | (GuiModule.getThemeColor(0) & 0x00FFFFFF);
 
-        // Card background blends from neutral toward theme color when enabled.
-        int neutral = CompactModuleCard.blendColor(palette.card, palette.hoverCard, hoverAnimation * 0.45F);
-        int cardColor = CompactModuleCard.blendColor(neutral, themeColor, enableAnimation * 0.32F);
+        // State is carried entirely by row fill: enabled floods with the
+        // accent, off rows paint nothing at all. No checkbox, no switch.
+        // Because enabled rows are scattered through the list rather than
+        // grouped, a flood is what makes the active set parseable in one
+        // glance.
+        //
+        // An off row IS the panel glass. It used to paint palette.card, but
+        // that colour is translucent and the panel behind it is too, so every
+        // row composited a second layer and the tab came out opaque. Hover is
+        // a white wash for the same reason.
+        int neutral = ((int) (0x1E * hoverAnimation) << 24) | (palette.hoverCard & 0x00FFFFFF);
+        int cardColor = CompactModuleCard.blendColor(
+                neutral, SpaciousCategoryTab.withAlpha(themeColor, 0xE4), enableAnimation);
 
-        RenderUtils.drawRoundedRectAA(x, y, x + w, y + totalHeight, CARD_RADIUS, cardColor);
+        // Rows stay flat — they sit inside the tab's chrome shadow already,
+        // and a shadow per row is what turned the list into mush.
+        //
+        // The accent flood stops at the header. The expanded body keeps a
+        // neutral tray: setting rows draw palette.titleText (white) and
+        // several of them are shared Compact components, so a light theme
+        // accent behind them is text nobody can read and contrast can't be
+        // fixed from here.
+        if (((cardColor >>> 24) & 0xFF) > 0) {
+            RenderUtils.drawRoundedRectAA(x, y, x + w, y + h, CARD_RADIUS, cardColor);
+        }
+        if (totalHeight > h) {
+            RenderUtils.drawRoundedRectAA(x, y + h, x + w, y + totalHeight, CARD_RADIUS,
+                    0x22000000);
+        }
 
-        // Module name — centered vertically on the header row. Just a
-        // gentle brighten on toggle; the background tint carries the
-        // toggled-state signal, the text stays neutral.
-        int titleY = y + (h - 8) / 2;
-        int titleColor = CompactModuleCard.blendColor(palette.titleText, 0xFFFFFFFF, enableAnimation * 0.15F);
-        FontUtil.semiBold.drawSmoothString(mod.getName(), x + 7, titleY, titleColor);
+        // Near-white in BOTH states — the label should read identically
+        // whether the row is on or off, so the fill is the only thing carrying
+        // state. contrastText only kicks in for the light themes, where white
+        // on the accent would be unreadable.
+        // Centre on the row's true middle using the renderer's own height
+        // rather than a hardcoded 8, so the label and the icons beside it
+        // share one baseline instead of drifting apart with the font.
+        float rowMid = y + h / 2.0F;
+        float titleY = rowMid - FontUtil.semiBold.getHeight() / 2.0F;
+        int titleColor = enableAnimation > 0.5F
+                ? RenderUtils.contrastText(cardColor)
+                : palette.titleText;
+        FontUtil.semiBold.drawSmoothString(mod.getName(), x + 9, titleY, titleColor);
 
-        // Expand-chevron on the right when the module has settings.
-        if (!settingComponents.isEmpty() || mod.isBindable()) {
-            int arrowX = x + w - 8;
-            int arrowY = y + h / 2;
-            int arrowColor = enableAnimation > 0.4F
-                    ? ((int)(200 * enableAnimation) << 24) | 0xFFFFFF
-                    : ((int)(140 * (0.4F + hoverAnimation * 0.6F)) << 24) | 0xFFFFFF;
-            RenderUtils.drawChevronRotated(arrowX, arrowY, 5,
-                    180.0F * expandAnim.get(), arrowColor, 1.1F);
+        int lowEmphasis = (titleColor & 0x00FFFFFF);
+        int rightEdge = x + w - 8;
+
+        // Chevron on every row, always visible but low-emphasis: each module
+        // expands, so the affordance should be a constant part of the row
+        // rather than something that appears when you happen to hover.
+        RenderUtils.drawChevronRotated(rightEdge - 2, y + h / 2.0F, 5,
+                180.0F * expandAnim.get(),
+                ((int) (0x8A + 0x50 * Math.max(hoverAnimation, expandAnim.get())) << 24) | lowEmphasis,
+                1.1F);
+        rightEdge -= 13;
+
+        // Keybind: the key letter followed by a small keyboard glyph, so a
+        // bound module says so without being expanded. Same low-emphasis white
+        // as the chevron.
+        String bind = bindLabel();
+        if (bind != null) {
+            float glyphSize = 9.0F;
+            float gap = 3.0F;
+            float labelW = (float) FontUtil.small.getStringWidth(bind);
+            float kbW = Icons.width(Icons.KEYBOARD, glyphSize);
+            float cy = y + h / 2.0F;
+
+            Icons.drawLeft(Icons.KEYBOARD, rightEdge - kbW, cy, glyphSize,
+                    (0xB0 << 24) | lowEmphasis);
+            FontUtil.small.drawSmoothString(bind,
+                    rightEdge - kbW - gap - labelW,
+                    cy - FontUtil.small.getHeight() / 2.0F,
+                    (0xC8 << 24) | lowEmphasis);
         }
 
         if (expandAnim.get() > 0.01F) {

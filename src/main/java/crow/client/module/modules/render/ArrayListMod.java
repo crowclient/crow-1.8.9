@@ -23,7 +23,6 @@ import crow.client.utils.GUIBlurUtil;
 import crow.client.utils.RenderUtils;
 import crow.client.utils.Utils;
 import crow.client.utils.font.FontUtil;
-import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.GuiChat;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.renderer.GlStateManager;
@@ -192,6 +191,37 @@ public class ArrayListMod extends Module {
             }
         }
 
+        // Per-corner rounding: outer-edge corners round only where the stepped
+        // column profile leaves them exposed; the rail edge stays flush unless
+        // the side line is off, where the first/last rows close the column.
+        final boolean[][] rowCorners = new boolean[rowCount][];
+        int firstVisible = -1;
+        {
+            int prevVis = -1;
+            for (int i = 0; i < rowCount; i++) {
+                if (rowProgress[i] <= 0.03F) continue;
+                if (firstVisible < 0) firstVisible = i;
+                int nextVis = -1;
+                for (int j = i + 1; j < rowCount; j++) {
+                    if (rowProgress[j] > 0.03F) { nextVis = j; break; }
+                }
+                boolean outerTop, outerBottom;
+                if (alignRight) {
+                    outerTop = prevVis < 0 || rowBgX1[prevVis] > rowBgX1[i];
+                    outerBottom = nextVis < 0 || rowBgX1[nextVis] > rowBgX1[i];
+                } else {
+                    outerTop = prevVis < 0 || rowBgX2[prevVis] < rowBgX2[i];
+                    outerBottom = nextVis < 0 || rowBgX2[nextVis] < rowBgX2[i];
+                }
+                boolean innerTop = prevVis < 0 && !lineOn;
+                boolean innerBottom = nextVis < 0 && !lineOn;
+                rowCorners[i] = alignRight
+                        ? new boolean[]{outerTop, outerBottom, innerBottom, innerTop}
+                        : new boolean[]{innerTop, innerBottom, outerBottom, outerTop};
+                prevVis = i;
+            }
+        }
+
         boolean lineOnRight = alignRight;
         if (lineOn && railTop >= 0 && railBottom > railTop) {
             int railX1, railX2;
@@ -202,7 +232,13 @@ public class ArrayListMod extends Module {
                 railX1 = posX - lw;
                 railX2 = posX;
             }
-            Gui.drawRect(railX1, railTop, railX2, railBottom, railColorTop);
+            float railR = lw / 2.0F;
+            if (isThemeLine()) {
+                RenderUtils.drawFlowingGradientRoundedRectVertical(railX1, railTop, railX2, railBottom,
+                        railR, (railColorTop >>> 24) & 0xFF, 0);
+            } else {
+                RenderUtils.drawRoundedRectAA(railX1, railTop, railX2, railBottom, railR, railColorTop);
+            }
         }
 
         if (HUD.enableBlur != null && HUD.enableBlur.isToggled()) {
@@ -219,17 +255,11 @@ public class ArrayListMod extends Module {
             if (bbLeft < bbRight && bbTop < bbBottom) {
                 final int cr = 4;
 
-                final boolean[] blurRound;
-                if (lineOnRight) {
-                    blurRound = new boolean[]{true, true, false, false};
-                } else {
-                    blurRound = new boolean[]{false, false, true, true};
-                }
                 GUIBlurUtil.drawBlurredBackgroundCustom(() -> {
                     for (int i = 0; i < rowCount; i++) {
-                        if (rowProgress[i] <= 0.03F) continue;
+                        if (rowCorners[i] == null) continue;
                         RenderUtils.drawRoundedRectAA(rowBgX1[i], rowYArr[i],
-                                rowBgX2[i], rowYArr[i] + rowH, cr, 0xFFFFFFFF, blurRound);
+                                rowBgX2[i], rowYArr[i] + rowH, cr, 0xFFFFFFFF, rowCorners[i]);
                     }
                 }, bbLeft, bbTop, bbRight - bbLeft, bbBottom - bbTop,
                         (int) HUD.blurRadius.getInput(), 0.6f);
@@ -252,17 +282,16 @@ public class ArrayListMod extends Module {
 
             if (background.isToggled()) {
                 int rowBg = (Math.min((bgRGB >> 24) & 0xFF, alphaScale) << 24) | (bgRGB & 0x00FFFFFF);
+                RenderUtils.drawRoundedRectAA(bgX1, rowY, bgX2, rowY + rowH, CORNER_R, rowBg, rowCorners[i]);
 
-                boolean tl, tr, bl, br;
-                if (lineOnRight) {
-
-                    tl = true; bl = true; tr = false; br = false;
-                } else {
-
-                    tl = false; bl = false; tr = true; br = true;
+                // 1-px lit rim on the top row — the glass-material cue, one rect.
+                if (i == firstVisible) {
+                    int hlA = (0x26 * alphaScale) / 255;
+                    if (hlA > 0) {
+                        RenderUtils.drawRoundedRectAA(bgX1 + 2, rowY + 0.6F, bgX2 - 2, rowY + 1.6F,
+                                0.5F, (hlA << 24) | 0xFFFFFF);
+                    }
                 }
-                RenderUtils.drawRoundedRectAA(bgX1, rowY, bgX2, rowY + rowH, CORNER_R, rowBg,
-                        new boolean[]{tl, bl, br, tr});
             }
 
             if (customFont.isToggled()) {
@@ -410,6 +439,12 @@ public class ArrayListMod extends Module {
             default:
                 return -1;
         }
+    }
+
+    private boolean isThemeLine() {
+        LineColorModes mode = (LineColorModes) lineColorMode.getMode();
+        return mode == LineColorModes.THEME
+                || (mode == LineColorModes.SAME_AS_TEXT && colorMode.getMode() == ColorModes.THEME);
     }
 
     private int getLineColor(int delay) {

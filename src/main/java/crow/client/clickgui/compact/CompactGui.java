@@ -324,30 +324,9 @@ public class CompactGui extends GuiScreen {
         loadOrUnloadBlurShader();
     }
 
-    /**
-     * Reflects the {@code Background Blur} Gui-module setting onto Minecraft's
-     * post-processing shader. Called from {@link #initGui()} (open) and
-     * {@link #drawScreen} (every frame, so live toggles take effect).
-     */
+    /** @see GuiModule#applyBackdropBlurShader() — shared with SpaciousGui. */
     private void loadOrUnloadBlurShader() {
-        if (mc == null || mc.entityRenderer == null
-                || mc.theWorld == null || mc.thePlayer == null) {
-            return;
-        }
-        boolean wantBlur = GuiModule.isBlurEnabled();
-        boolean active = mc.entityRenderer.isShaderActive();
-        if (wantBlur && !active) {
-            InputStream stream = null;
-            try {
-                stream = mc.getResourceManager().getResource(BLUR_SHADER).getInputStream();
-                if (stream != null) mc.entityRenderer.loadShader(BLUR_SHADER);
-            } catch (Exception ignored) {
-            } finally {
-                if (stream != null) try { stream.close(); } catch (Exception ignored) {}
-            }
-        } else if (!wantBlur && active) {
-            try { mc.entityRenderer.stopUseShader(); } catch (Exception ignored) {}
-        }
+        GuiModule.applyBackdropBlurShader();
     }
 
     @Override
@@ -555,14 +534,22 @@ public class CompactGui extends GuiScreen {
 
     private void drawLayout(int mouseX, int mouseY, CompactPalette palette) {
 
-        RenderUtils.drawRoundedRectAA(containerX, containerY,
-                containerX + containerW, containerY + containerH, PANEL_RADIUS, palette.background);
+        // Chrome elevation: one shadow for the whole window, then the two
+        // halves painted side by side, then one edge closing them into a
+        // single sheet of glass. The old full-container `background` fill
+        // underneath is gone — the halves cover it completely, and with
+        // translucent fills stacking them just double-darkened the glass.
+        RenderUtils.drawGlassChromeShadow(containerX, containerY, containerW, containerH,
+                PANEL_RADIUS, 1.0F);
         RenderUtils.drawRoundedRectAA(containerX, containerY,
                 containerX + SIDEBAR_WIDTH, containerY + containerH, PANEL_RADIUS, palette.sidebar,
                 new boolean[]{true, true, false, false});
         RenderUtils.drawRoundedRectAA(containerX + SIDEBAR_WIDTH, containerY,
                 containerX + containerW, containerY + containerH, PANEL_RADIUS, palette.content,
                 new boolean[]{false, false, true, true});
+        RenderUtils.drawGlassEdge(containerX, containerY,
+                containerX + containerW, containerY + containerH, PANEL_RADIUS,
+                (palette.content >>> 24) & 0xFF);
 
         drawSidebar(mouseX, mouseY, palette);
         GL11.glPushMatrix();
@@ -594,9 +581,7 @@ public class CompactGui extends GuiScreen {
             GlStateManager.enableBlend();
             GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
             GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
-            mc.getTextureManager().bindTexture(CROW_ICON);
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+            crow.client.utils.RenderUtils.bindSmoothIcon(CROW_ICON);
             Gui.drawModalRectWithCustomSizedTexture(brandX, iconY, 0, 0, brandIconSize, brandIconSize, brandIconSize, brandIconSize);
             GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
         }
@@ -1239,7 +1224,7 @@ public class CompactGui extends GuiScreen {
 
         RenderUtils.drawRoundedRectAA(x, y, x + w, y + CONFIG_ROW_HEIGHT, 10, bg);
         if (current) {
-            RenderUtils.drawRoundedOutline(x, y, x + w, y + CONFIG_ROW_HEIGHT, 10, 1.0F, palette.accent);
+            RenderUtils.drawRoundedOutline(x, y, x + w, y + CONFIG_ROW_HEIGHT, 10, 1.0F, GuiModule.accent());
             RenderUtils.drawFlowingGradientRoundedRect(x + 1, y + 1, x + w - 1, y + CONFIG_ROW_HEIGHT - 1, 9, 30, 0);
         }
 
@@ -1254,7 +1239,7 @@ public class CompactGui extends GuiScreen {
         String status = current ? "Current config" : "Click to load";
         FontUtil.small.drawSmoothString(
                 trimToWidth(status, FontUtil.small, nameMaxW),
-                x + 12, y + 22, current ? palette.accent : palette.mutedText);
+                x + 12, y + 22, current ? GuiModule.accent() : palette.mutedText);
         if (lastEdit > 0L) {
             FontUtil.small.drawSmoothString(when, x + w - 12 - (int) FontUtil.small.getStringWidth(when), y + 22, palette.mutedText);
         }
@@ -1295,12 +1280,13 @@ public class CompactGui extends GuiScreen {
     }
 
     private void drawDeleteConfirmation(int mouseX, int mouseY, CompactPalette palette) {
-        Gui.drawRect(0, 0, width, height, 0x7A000000);
+        Gui.drawRect(0, 0, width, height, palette.scrim);
         int boxW = 240;
         int boxH = 112;
         int boxX = (width - boxW) / 2;
         int boxY = (height - boxH) / 2;
-        RenderUtils.drawRoundedRectAA(boxX, boxY, boxX + boxW, boxY + boxH, 14, palette.card);
+        RenderUtils.drawGlassPanel(boxX, boxY, boxX + boxW, boxY + boxH, 14,
+                palette.card, RenderUtils.GLASS_SHADOW_RAISED);
         FontUtil.bold.drawCenteredSmoothString("Delete Config?", boxX + boxW / 2.0F, boxY + 18, palette.titleText);
         FontUtil.small.drawCenteredSmoothString(
                 "Remove " + pendingDeleteConfig.getName() + " permanently?",
@@ -1433,7 +1419,7 @@ public class CompactGui extends GuiScreen {
                 : CompactModuleCard.blendColor(palette.card, palette.hoverCard, hovered ? 0.58F : 0.15F);
         RenderUtils.drawRoundedRectAA(drawX, drawY, drawX + drawW, drawY + drawH, 12, bg);
         if (active) {
-            RenderUtils.drawRoundedOutline(drawX, drawY, drawX + drawW, drawY + drawH, 12, 1.0F, palette.accent);
+            RenderUtils.drawRoundedOutline(drawX, drawY, drawX + drawW, drawY + drawH, 12, 1.0F, GuiModule.accent());
             RenderUtils.drawFlowingGradientRoundedRect(drawX + 1, drawY + 1, drawX + drawW - 1, drawY + drawH - 1, 11, 24, 0);
         }
 
@@ -1441,7 +1427,7 @@ public class CompactGui extends GuiScreen {
         int previewY = drawY + 10;
         int previewW = drawW - 20;
         int previewH = 34;
-        RenderUtils.drawRoundedRectAA(previewX, previewY, previewX + previewW, previewY + previewH, 9, 0x18000000);
+        RenderUtils.drawRoundedRectAA(previewX, previewY, previewX + previewW, previewY + previewH, 9, 0x14FFFFFF);
         drawAnimatedThemeGradient(theme, previewX + 1, previewY + 1, previewW - 2, previewH - 2);
 
         String descriptor = "3-color flowing gradient";
@@ -1451,7 +1437,7 @@ public class CompactGui extends GuiScreen {
                 trimToWidth(theme.getName(), FontUtil.semiBold, nameMaxW),
                 drawX + 12, drawY + 52, palette.titleText);
         String subtitle = active ? "Active theme" : "Click to apply";
-        FontUtil.small.drawSmoothString(subtitle, drawX + 12, drawY + 65, active ? palette.accent : palette.mutedText);
+        FontUtil.small.drawSmoothString(subtitle, drawX + 12, drawY + 65, active ? GuiModule.accent() : palette.mutedText);
         FontUtil.small.drawSmoothString(descriptor, drawX + drawW - 12 - descriptorW, drawY + 65, palette.mutedText);
     }
 
@@ -1478,9 +1464,7 @@ public class CompactGui extends GuiScreen {
         }
         GlStateManager.enableBlend();
         GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
-        mc.getTextureManager().bindTexture(SEARCH_ICON);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+        crow.client.utils.RenderUtils.bindSmoothIcon(SEARCH_ICON);
         GlStateManager.color(1.0F, 1.0F, 1.0F, 0.92F);
         Gui.drawModalRectWithCustomSizedTexture(x, y, 0, 0, size, size, size, size);
         GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
@@ -1606,7 +1590,7 @@ public class CompactGui extends GuiScreen {
         int trackTop = contentY + 2;
         int trackBottom = contentY + contentH - 2;
         int trackX = contentScissorX + contentScissorW + 4;
-        Gui.drawRect(trackX, trackTop, trackX + 1, trackBottom, 0x22000000);
+        Gui.drawRect(trackX, trackTop, trackX + 1, trackBottom, 0x1AFFFFFF);
 
         float viewRatio = Math.max(0.15F, contentH / (float) totalContent);
         int thumbHeight = Math.max(13, (int) ((trackBottom - trackTop) * viewRatio));
@@ -1654,7 +1638,7 @@ public class CompactGui extends GuiScreen {
         }
         int trackTop = contentY + 1;
         int trackBottom = contentY + contentH - 1;
-        Gui.drawRect(trackX, trackTop, trackX + 1, trackBottom, 0x22000000);
+        Gui.drawRect(trackX, trackTop, trackX + 1, trackBottom, 0x1AFFFFFF);
         float viewRatio = Math.max(0.15F, contentH / (float) totalContent);
         int thumbHeight = Math.max(13, (int) ((trackBottom - trackTop) * viewRatio));
         float scrollProgress = Math.min(1.0F, Math.max(0.0F,

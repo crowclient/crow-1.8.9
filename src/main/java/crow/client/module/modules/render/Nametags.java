@@ -208,8 +208,8 @@ public class Nametags extends Module {
         GlStateManager.scale(tag.scale, tag.scale, 1.0F);
 
         if (showRect.isToggled()) {
-            RenderUtils.drawRoundedRectAA(-halfWidth - 3, cardTop, halfWidth + 3, cardBottom, 4, 0xAA111217);
-            RenderUtils.drawRoundedRectAA(-halfWidth - 3, cardBottom - 1, halfWidth + 3, cardBottom, 2, 0x55FFFFFF);
+            // Glass plate: translucent dark fill + lit rim/hairline, no shadow in-world.
+            RenderUtils.drawGlassPanel(-halfWidth - 3, cardTop, halfWidth + 3, cardBottom, 4, 0xB80E1014, 0);
         }
 
         if (showArmor.isToggled() && !tag.equipment.isEmpty()) {

@@ -50,20 +50,7 @@ public class Crow {
     public static ConfigManager configManager;
     public static ClientConfig clientConfig;
 
-    public static final ModuleManager moduleManager = new ModuleManager();
-
-    public static ClickGui clickGui;
-    public static KvCompactGui kvCompactGui;
-    public static CompactGui compactGui;
-    public static SpaciousGui spaciousGui;
-
-    private static final ScheduledExecutorService ex = Executors.newScheduledThreadPool(2);
-
-    public static ResourceLocation mResourceLocation;
-
-    public static final String osName, osArch;
-    public static final List<Object> registered = new ArrayList<Object>();
-
+    public static final Minecraft mc = Minecraft.getMinecraft();
     public static final EventBus eventBus = new EventBus(new SubscriberExceptionHandler() {
         @Override
         public void handleException(Throwable exception, SubscriberExceptionContext context) {
@@ -78,7 +65,20 @@ public class Crow {
             }
         }
     });
-    public static final Minecraft mc = Minecraft.getMinecraft();
+    public static final ModuleManager moduleManager = new ModuleManager();
+
+    public static ClickGui clickGui;
+    public static KvCompactGui kvCompactGui;
+    public static CompactGui compactGui;
+    public static SpaciousGui spaciousGui;
+
+    private static final ScheduledExecutorService ex = Executors.newScheduledThreadPool(2);
+
+    public static ResourceLocation mResourceLocation;
+
+    public static final String osName, osArch;
+    public static final List<Object> registered = new ArrayList<Object>();
+
 
     static {
         osName = System.getProperty("os.name").toLowerCase();
@@ -119,7 +119,7 @@ public class Crow {
         register(new MouseManager());
         register(new PingChecker());
         register(new ForgeEventListener());
-        register(SilentAim.instance());
+        eventBus.register(SilentAim.instance());
         eventBus.register(NotificationRenderer.notificationRenderer);
 
         FontUtil.bootstrap();
@@ -133,9 +133,12 @@ public class Crow {
         kvCompactGui = new KvCompactGui();
         compactGui = new CompactGui();
         spaciousGui = new SpaciousGui();
+        moduleManager.activateDefaultModules();
         configManager = new ConfigManager();
         clientConfig = new ClientConfig();
         clientConfig.applyConfig();
+        moduleManager.ensureDefaultTheme();
+        clientConfig.initializeDefaultsIfNeeded();
 
     }
 

@@ -127,7 +127,10 @@ public class KeyStrokeRenderer {
     public static void drawButtonShell(int x, int y, int width, int height, int fillColor) {
         drawBlurredButton(x, y, width, height, Math.min(1.0F, Math.max(0.2F, KeyStroke.backgroundOpacity / 255.0F)));
         int radius = Math.max(5, Math.min(width, height) / 3);
-        RenderUtils.drawRoundedRectAA(x, y, x + width, y + height, radius, fillColor);
+        // Glass edge, no shadow: drawBlurredButton already lays down a cheap
+        // stacked-alpha halo under every key, and six real shadow quads per
+        // frame on 22px keys is not a trade worth making.
+        RenderUtils.drawGlassPanel(x, y, x + width, y + height, radius, fillColor, 0);
     }
 
     public static void drawPressSplash(int x, int y, int width, int height, int accentColor, long pressStart) {

@@ -1,7 +1,9 @@
 package crow.client.clickgui.compact;
 
+import crow.client.module.modules.client.GuiModule;
 import crow.client.module.modules.client.GuiModule.CompactPalette;
 import crow.client.module.setting.impl.ButtonSetting;
+import crow.client.utils.Animation;
 import crow.client.utils.RenderUtils;
 import crow.client.utils.font.FontUtil;
 
@@ -10,9 +12,9 @@ public class CompactButton {
 
     int x, y, w, h;
 
-    private float hoverAnimation;
+    private final Animation hoverAnim = new Animation(160, Animation::easeOutCubic);
 
-    private float pressAnimation;
+    private final Animation pressAnim = new Animation(220, Animation::easeOutCubic);
 
     public CompactButton(ButtonSetting setting) {
         this.setting = setting;
@@ -27,10 +29,14 @@ public class CompactButton {
 
     public void draw(int mouseX, int mouseY, CompactPalette palette) {
         boolean hovered = mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
-        hoverAnimation += ((hovered ? 1.0F : 0.0F) - hoverAnimation) * 0.22F;
+        hoverAnim.setTarget(hovered ? 1.0F : 0.0F);
+        hoverAnim.update();
+        float hoverAnimation = hoverAnim.get();
 
-        pressAnimation *= 0.82F;
-        if (pressAnimation < 0.01F) pressAnimation = 0.0F;
+        // Press decays back to rest; setTarget(1) on click makes it spike.
+        pressAnim.setTarget(0.0F);
+        pressAnim.update();
+        float pressAnimation = pressAnim.get();
 
         int bgBase = CompactModuleCard.blendColor(palette.toggleOff, palette.card, 0.35F);
         int bgHover = CompactModuleCard.blendColor(palette.hoverCard, palette.card, 0.50F);
@@ -44,7 +50,7 @@ public class CompactButton {
         if (hoverAnimation > 0.05F) {
             int outlineAlpha = (int) (45 * hoverAnimation);
             RenderUtils.drawRoundedOutline(x, y, x + w, y + h, 10, 1.0F,
-                    (outlineAlpha << 24) | (palette.accent & 0x00FFFFFF));
+                    (outlineAlpha << 24) | (GuiModule.accent() & 0x00FFFFFF));
         }
 
         FontUtil.semiBold.drawCenteredSmoothString(setting.getName(), x + w / 2.0F, y + 8, palette.titleText);
@@ -52,7 +58,7 @@ public class CompactButton {
 
     public void mouseClicked(int mouseX, int mouseY, int button) {
         if (button == 0) {
-            pressAnimation = 1.0F;
+            pressAnim.set(1.0F);
             setting.press();
         }
     }

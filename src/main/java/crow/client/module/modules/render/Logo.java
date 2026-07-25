@@ -4,7 +4,6 @@ import com.google.common.eventbus.Subscribe;
 import crow.client.event.impl.Render2DEvent;
 import crow.client.module.Module;
 import crow.client.module.modules.HUD;
-import crow.client.module.modules.client.GuiModule;
 import crow.client.module.setting.impl.SliderSetting;
 import crow.client.module.setting.impl.TickSetting;
 import crow.client.utils.GUIBlurUtil;
@@ -67,8 +66,6 @@ public class Logo extends Module {
         GlStateManager.pushMatrix();
 
         boolean useBlur = HUD.enableBlur != null && HUD.enableBlur.isToggled();
-        int accent = GuiModule.getThemeColor(0);
-        int accentRGB = accent & 0x00FFFFFF;
 
         if (useBlur) {
             GUIBlurUtil.drawBlurredBackground(x, y, totalW, totalH,
@@ -77,12 +74,12 @@ public class Logo extends Module {
         }
 
         if (background.isToggled()) {
-            RenderUtils.drawRoundedRectAA(x, y, x + totalW, y + totalH, 8, 0xD014171D);
+            RenderUtils.drawGlassPanel(x, y, x + totalW, y + totalH, 8, 0xC414171D,
+                    HUD.dropShadow == null || HUD.dropShadow.isToggled() ? RenderUtils.GLASS_SHADOW_CHROME : 0);
         }
 
         if (accentLine.isToggled()) {
-            RenderUtils.drawRoundedRectAA(x + 6, y + 2, x + totalW - 6, y + 3, 1,
-                    0x80000000 | accentRGB);
+            RenderUtils.drawFlowingGradientRoundedRect(x + 6, y + 2, x + totalW - 6, y + 3, 0.5F, 0x80, 0);
         }
 
         float contentY = y + 5;
