@@ -676,6 +676,9 @@ public class Clutch extends Module {
     private PlaceTarget findBestTarget() {
         if (mc.thePlayer == null) return null;
         Vec3 eyes = mc.thePlayer.getPositionEyes(1.0F);
+        // Hoisted out of the candidate loop below — withinReach() would rebuild
+        // both of these thousands of times per tick in here.
+        Vec3 lead = leadEyes();
 
         double maxReach = placementReach();
 
@@ -714,7 +717,8 @@ public class Clutch extends Module {
                                 support.getY() + 0.5D + clickFace.getFrontOffsetY() * 0.48D,
                                 support.getZ() + 0.5D + clickFace.getFrontOffsetZ() * 0.48D);
 
-                        if (!withinReach(hit)) continue;
+                        if (eyes.distanceTo(hit) > maxReach
+                                && lead.distanceTo(hit) > maxReach) continue;
 
                         double bx = place.getX() + 0.5D - pX;
                         double by = place.getY() + 0.5D - (pY - 0.5D);
