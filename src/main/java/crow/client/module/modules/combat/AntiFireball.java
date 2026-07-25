@@ -163,8 +163,10 @@ public class AntiFireball extends Module {
 
             reflectedIds.add(targetFireball.getEntityId());
 
-            mc.playerController.attackEntity(mc.thePlayer, targetFireball);
+            // Swing before the attack, same as Minecraft.clickMouse — C02 ahead
+            // of C0A is Grim's PacketOrderB.
             if (swing.isToggled()) mc.thePlayer.swingItem();
+            mc.playerController.attackEntity(mc.thePlayer, targetFireball);
             disengage();
         }
     }
