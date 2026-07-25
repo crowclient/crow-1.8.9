@@ -30,9 +30,9 @@ public class VersionManager {
     }
 
     private void fetchLatestVersion() {
-        String version = clientVersion.toString();
-        String branch = "";
-        int branchCommit = 0;
+        String version = clientVersion.getVersion();
+        String branch = clientVersion.getBranchName();
+        int branchCommit = clientVersion.getBranchCommit();
 
         String fetched = readUrlLine(versionUrl);
         if (fetched != null) version = fetched;
@@ -53,6 +53,10 @@ public class VersionManager {
     }
 
     private String readUrlLine(String urlStr) {
+        if (urlStr == null || urlStr.trim().isEmpty()) {
+            return null;
+        }
+
         try {
             URLConnection conn = new URL(urlStr).openConnection();
             conn.setConnectTimeout(CONNECT_TIMEOUT_MS);

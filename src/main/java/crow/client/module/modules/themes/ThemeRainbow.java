@@ -5,7 +5,6 @@ import crow.client.utils.Utils;
 public class ThemeRainbow extends ThemeModule {
     public ThemeRainbow() {
         super("Rainbow");
-        enable();
     }
 
     @Override

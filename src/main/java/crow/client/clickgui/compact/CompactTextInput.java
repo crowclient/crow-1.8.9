@@ -1,5 +1,6 @@
 package crow.client.clickgui.compact;
 
+import crow.client.module.modules.client.GuiModule;
 import crow.client.module.modules.client.GuiModule.CompactPalette;
 import crow.client.module.setting.impl.TextSetting;
 import crow.client.utils.RenderUtils;
@@ -37,7 +38,7 @@ public class CompactTextInput {
         FontUtil.small.drawSmoothString(setting.getName(), x, y + 2, palette.mutedText);
 
         int fieldY = y + HEADER_HEIGHT;
-        int borderColor = focused ? palette.accent : palette.outline;
+        int borderColor = focused ? GuiModule.accent() : palette.outline;
         int bgColor = CompactModuleCard.blendColor(palette.background, palette.card, 0.4F);
 
         RenderUtils.drawRoundedRectAA(x, fieldY, x + w, fieldY + FIELD_HEIGHT, 6, borderColor);

@@ -11,6 +11,7 @@ import javax.imageio.ImageIO;
 
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL12;
 import org.lwjgl.opengl.GL20;
 
 import crow.client.main.Crow;
@@ -26,6 +27,16 @@ import net.minecraft.util.ResourceLocation;
 
 public class RenderUtils {
     private static final Map<String, ResourceLocation> RESOURCE_CACHE = new HashMap<>();
+
+    // ponytail: shared scratch for GL matrix/viewport readback. The AA draw
+    // primitives below run 100s of times per frame (123 drawRoundedRectAA
+    // callsites, many in loops); allocating three direct ByteBuffers per call
+    // meant ~40k direct allocations/sec, each hitting Bits.reserveMemory's
+    // global accounting lock plus a Cleaner phantom-ref registration. GL here
+    // is single-threaded, so one shared set is safe.
+    private static final java.nio.FloatBuffer SCRATCH_MV = BufferUtils.createFloatBuffer(16);
+    private static final java.nio.FloatBuffer SCRATCH_PR = BufferUtils.createFloatBuffer(16);
+    private static final java.nio.IntBuffer   SCRATCH_VP = BufferUtils.createIntBuffer(16);
 
     public static void syncGlStateBlend() {
         if (GL11.glIsEnabled(GL11.GL_BLEND)) {
@@ -495,6 +506,341 @@ public class RenderUtils {
         return sr.getScaleFactor();
     }
 
+    private static int clamp255(int v) { return v < 0 ? 0 : (v > 255 ? 255 : v); }
+
+    /* Elevation shadow presets. A shadow crosses an elevation boundary
+     * exactly once — nothing nested inside a raised surface gets its own,
+     * or the whole stack turns to mud. */
+
+    /* These are GUI units, not pixels — the shader scales them by the live
+     * modelview. Each preset renders as two layers (see drawSoftShadow):
+     * a wide, downward-offset ambient penumbra that carries the "blurred"
+     * read, and a tight contact shadow that keeps the edge defined. The
+     * alpha here is the ambient layer's peak; with the gaussian-CDF falloff
+     * only about half of it is visible at the silhouette, so these run
+     * darker than the old exp-falloff numbers did. */
+
+    /** Chrome: window/container level — the macOS-window read: a deep,
+     *  diffuse pool below, soft everywhere else. */
+    public static final int    GLASS_SHADOW_CHROME      = 0x6E;
+    private static final float GLASS_SHADOW_CHROME_Y    = 4.0F;
+    private static final float GLASS_SHADOW_CHROME_BLUR = 10.0F;
+
+    /** Raised: cards, dropdowns, modals, tooltips sitting on chrome. */
+    public static final int    GLASS_SHADOW_RAISED      = 0x58;
+    private static final float GLASS_SHADOW_RAISED_Y    = 2.0F;
+    private static final float GLASS_SHADOW_RAISED_BLUR = 5.0F;
+
+    /**
+     * Apple-style two-layer soft shadow: one wide, offset ambient layer
+     * (the blur) plus one tight, near-centered contact layer (the edge
+     * definition). Both go through the SDF shadow shader.
+     */
+    private static void drawSoftShadow(float x, float y, float w, float h,
+                                       float radius, int alpha,
+                                       float offsetY, float blur) {
+        if (alpha <= 0) return;
+        drawShadowedRoundedRect(x, y, w, h, radius,
+                clamp255(alpha) << 24, 0.0F, offsetY, blur);
+        drawShadowedRoundedRect(x, y, w, h, radius,
+                clamp255((int) (alpha * 0.7F)) << 24, 0.0F,
+                Math.min(1.0F, offsetY * 0.25F), Math.max(1.0F, blur * 0.3F));
+    }
+
+    /**
+     * Vertical two-stop gradient clipped to a rounded rect.
+     *
+     * <p>Intended as a translucent sheen <i>over</i> an already-drawn
+     * {@link #drawRoundedRectAA} fill: the strips below are geometrically
+     * inset at the corners rather than analytically antialiased, so the base
+     * fill underneath is what gives the shape its clean silhouette. Layering
+     * it this way also means one sheen works over any accent colour instead of
+     * needing a per-theme pair of stops.
+     */
+    public static void drawRoundedRectVGradient(float x, float y, float x1, float y1,
+                                                float radius, int topColor, int bottomColor) {
+        if (x1 <= x || y1 <= y) return;
+
+        float w = x1 - x;
+        float h = y1 - y;
+        float r = Math.max(0.0F, Math.min(radius, Math.min(w / 2.0F, h / 2.0F)));
+
+        GlStateManager.enableBlend();
+        GlStateManager.disableTexture2D();
+        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+        GlStateManager.shadeModel(7425);
+
+        net.minecraft.client.renderer.Tessellator tess =
+                net.minecraft.client.renderer.Tessellator.getInstance();
+        net.minecraft.client.renderer.WorldRenderer wr = tess.getWorldRenderer();
+        wr.begin(7, net.minecraft.client.renderer.vertex.DefaultVertexFormats.POSITION_COLOR);
+
+        int tA = (topColor >>> 24) & 0xFF, tR = (topColor >> 16) & 0xFF,
+            tG = (topColor >> 8) & 0xFF,   tB = topColor & 0xFF;
+        int bA = (bottomColor >>> 24) & 0xFF, bR = (bottomColor >> 16) & 0xFF,
+            bG = (bottomColor >> 8) & 0xFF,   bB = bottomColor & 0xFF;
+
+        int steps = Math.max(1, (int) Math.ceil(h));
+        for (int i = 0; i < steps; i++) {
+            float yT = y + h * (i / (float) steps);
+            float yB = y + h * ((i + 1) / (float) steps);
+            float insetT = roundCornerInset((int) (yT - y), (int) h, r);
+            float insetB = roundCornerInset((int) (yB - y), (int) h, r);
+            float lT = x + insetT, rT = x1 - insetT;
+            float lB = x + insetB, rB = x1 - insetB;
+            if (lT >= rT || lB >= rB) continue;
+
+            float fT = (yT - y) / h;
+            float fB = (yB - y) / h;
+            int aT = (int) (tA + (bA - tA) * fT), rr1 = (int) (tR + (bR - tR) * fT);
+            int gg1 = (int) (tG + (bG - tG) * fT), bb1 = (int) (tB + (bB - tB) * fT);
+            int aB = (int) (tA + (bA - tA) * fB), rr2 = (int) (tR + (bR - tR) * fB);
+            int gg2 = (int) (tG + (bG - tG) * fB), bb2 = (int) (tB + (bB - tB) * fB);
+
+            wr.pos(rT, yT, 0.0D).color(rr1, gg1, bb1, aT).endVertex();
+            wr.pos(lT, yT, 0.0D).color(rr1, gg1, bb1, aT).endVertex();
+            wr.pos(lB, yB, 0.0D).color(rr2, gg2, bb2, aB).endVertex();
+            wr.pos(rB, yB, 0.0D).color(rr2, gg2, bb2, aB).endVertex();
+        }
+
+        tess.draw();
+
+        GlStateManager.shadeModel(7424);
+        GlStateManager.enableTexture2D();
+        GlStateManager.disableBlend();
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+    }
+
+    /**
+     * Text colour that stays legible on {@code bgArgb}: near-black on light
+     * fills, white on dark ones.
+     *
+     * <p>Needed wherever a surface is filled with the live theme colour, which
+     * ranges from near-black to White/Gray — hardcoding white text there makes
+     * the label vanish on the light themes.
+     */
+    public static int contrastText(int bgArgb) {
+        int r = (bgArgb >> 16) & 0xFF;
+        int g = (bgArgb >>  8) & 0xFF;
+        int b =  bgArgb        & 0xFF;
+        float lum = (0.299F * r + 0.587F * g + 0.114F * b) / 255F;
+        return lum > 0.58F ? 0xFF10131A : 0xFFFFFFFF;
+    }
+
+    /**
+     * Chrome-tier shadow on its own, for panels that paint their interior in
+     * several pieces and so can't use {@link #drawGlassPanel}. Pair it with
+     * {@link #drawGlassEdge} around the pieces.
+     *
+     * @param alphaScale 0–1 reveal fade
+     */
+    public static void drawGlassChromeShadow(float x, float y, float w, float h,
+                                             float radius, float alphaScale) {
+        if (alphaScale <= 0.0F) return;
+        drawSoftShadow(x, y, w, h, radius,
+                (int) (GLASS_SHADOW_CHROME * alphaScale),
+                GLASS_SHADOW_CHROME_Y, GLASS_SHADOW_CHROME_BLUR);
+    }
+
+    /**
+     * The client's single panel material, minus the backdrop blur: a soft
+     * drop shadow, a translucent fill, a 1-px lit top rim, and a hairline
+     * border. Every panel, card, dropdown and HUD background should go
+     * through here so they read as one system by construction.
+     *
+     * <p>There is deliberately no {@link GUIBlurUtil} call. Inside a click
+     * GUI the blurred backdrop comes free from Minecraft's own post-process
+     * shader (see {@code GuiModule.applyBackdropBlurShader}); on the HUD the
+     * rim plus the shadow carry the glass read on their own, which matters
+     * because HUD blur is off by default. Use {@link #drawFrostedPanel} for
+     * the rare surface that genuinely needs a real backdrop blur.
+     *
+     * @param fill        translucent ARGB fill — pass a palette color straight through
+     * @param shadowAlpha 0 for no shadow, else {@link #GLASS_SHADOW_CHROME} /
+     *                    {@link #GLASS_SHADOW_RAISED} scaled by any reveal fade
+     */
+    public static void drawGlassPanel(float x, float y, float x1, float y1,
+                                      float radius, int fill, int shadowAlpha) {
+        drawGlassPanel(x, y, x1, y1, radius, fill, shadowAlpha,
+                GLASS_SHADOW_RAISED_Y, GLASS_SHADOW_RAISED_BLUR);
+    }
+
+    /**
+     * {@link #drawGlassPanel} with explicit shadow geometry, for chrome-tier
+     * surfaces that need a deeper, farther shadow than a raised card.
+     */
+    public static void drawGlassPanel(float x, float y, float x1, float y1,
+                                      float radius, int fill, int shadowAlpha,
+                                      float shadowOffsetY, float shadowBlur) {
+        if (x1 <= x || y1 <= y) return;
+
+        if (shadowAlpha > 0) {
+            // drawSoftShadow draws the shadow only, never the rect, and
+            // takes w/h — the conversion lives here so call sites keep
+            // one coordinate convention.
+            drawSoftShadow(x, y, x1 - x, y1 - y, radius,
+                    shadowAlpha, shadowOffsetY, shadowBlur);
+        }
+
+        drawRoundedRectAA(x, y, x1, y1, radius, fill);
+
+        // Alpha of the fill drives the edge so a panel fading in doesn't
+        // leave a bright outline hanging in the air.
+        drawGlassEdge(x, y, x1, y1, radius, (fill >>> 24) & 0xFF);
+    }
+
+    /**
+     * The lit top rim plus hairline border of the glass material, without a
+     * fill or shadow.
+     *
+     * <p>For panels whose interior is painted in more than one piece — a
+     * sidebar beside a content pane, a header strip over a body — where
+     * stacking translucent fills would double-darken the glass. Paint the
+     * pieces, then close the panel with one call to this so the edge reads as
+     * a single sheet.
+     *
+     * @param alpha 0–255, normally the fill alpha of the pieces
+     */
+    public static void drawGlassEdge(float x, float y, float x1, float y1,
+                                     float radius, int alpha) {
+        if (x1 <= x || y1 <= y || alpha <= 0) return;
+        float a = clamp255(alpha) / 255.0F;
+
+        // 1-px lit rim just inside the top edge — the glass catches light.
+        // This is the single strongest "glass" cue, and it costs one rect.
+        int hlA = clamp255((int) (0x26 * a));
+        float inset = Math.min(radius * 0.4F, (x1 - x) * 0.2F);
+        drawRoundedRectAA(x + inset, y + 0.6F, x1 - inset, y + 1.6F,
+                0.5F, (hlA << 24) | 0xFFFFFF);
+
+        // Hairline border.
+        int bA = clamp255((int) (0x3A * a));
+        drawRoundedOutline(x, y, x1, y1, radius, 1.0F, (bA << 24) | 0xFFFFFF);
+    }
+
+    /**
+     * {@link #drawGlassPanel} plus a real stencil-clipped backdrop blur.
+     *
+     * <p>Reserve this for surfaces with no already-blurred backdrop behind
+     * them — the main menu, and the HUD layouts that opt into it. Each call
+     * costs a full attrib push, a {@code glCopyTexImage2D} reallocation, an
+     * unscissored stencil clear and two shader passes, and overlapping calls
+     * capture each other, so this is a handful-per-frame primitive.
+     *
+     * @param alpha master alpha (0–255) driving reveal fades.
+     */
+    public static void drawFrostedPanel(float x, float y, float x1, float y1,
+                                        float radius, int alpha) {
+        drawFrostedPanel(x, y, x1, y1, radius, alpha, 8);
+    }
+
+    /** {@link #drawFrostedPanel} with an explicit backdrop-blur radius. */
+    public static void drawFrostedPanel(float x, float y, float x1, float y1,
+                                        float radius, int alpha, int blurRadius) {
+        if (x1 <= x || y1 <= y || alpha <= 0) return;
+        float a = alpha / 255.0F;
+
+        // Frosted glass: backdrop blur clipped to the rounded rect. Falls
+        // back to a flat dark rect internally when FBO/blur is unavailable.
+        // Drawn before the shadow so the shadow isn't captured into its own
+        // blur and doubled.
+        GUIBlurUtil.drawBlurredBackground(Math.round(x), Math.round(y),
+                Math.round(x1 - x), Math.round(y1 - y),
+                blurRadius, Math.round(radius), a);
+
+        // Tint is lighter than the blur util's own baked 0.38 mix would
+        // suggest — the two stack, and at 0xD2 the backdrop was only ~11%
+        // visible, which is a dark rect with a rumour of blur rather than
+        // glass.
+        int tintA = clamp255((int) (0xB8 * a));
+        drawGlassPanel(x, y, x1, y1, radius, (tintA << 24) | 0x0E1014,
+                clamp255((int) (GLASS_SHADOW_CHROME * a)),
+                GLASS_SHADOW_CHROME_Y, GLASS_SHADOW_CHROME_BLUR);
+    }
+
+    /** Pre-scale ceiling for non-icon assets (mostly backgrounds). Wide
+     *  enough to let menubg.jpg etc. retain detail for fullscreen draw. */
+    private static final int RESOURCE_MAX_EDGE = 1024;
+
+    /** Pre-scale ceiling for icon-class assets loaded without a display-size
+     *  hint. Callers that know their render size should use
+     *  {@link #getResourcePathAtSize}. Icons here are drawn anywhere from 11
+     *  to ~48 logical px, and GUI scale 3–4 turns that into up to ~190
+     *  physical px, so 128 keeps a >= 1x source at every real draw size while
+     *  still cutting the 794x763 crow.png to 64 KB of VRAM. 32 was small
+     *  enough to visibly blur the logo on the main menu and click GUIs. */
+    private static final int ICON_MAX_EDGE = 128;
+
+    /** Per-size pre-scaled icon cache. Keyed by "{path}@{storeSize}" so
+     *  the same source PNG can have separate smaller variants for, say,
+     *  the 11-px launcher button vs the 48-px click-GUI splash. */
+    private static final Map<String, ResourceLocation> SIZED_RESOURCE_CACHE = new HashMap<>();
+
+    /** Round {@code v} up to the next power of two, with a 16-px floor. */
+    private static int nextPowerOfTwoAtLeast16(int v) {
+        int n = 16;
+        while (n < v && n < 4096) n <<= 1;
+        return n;
+    }
+
+    /** Load (and cache) an icon pre-scaled in Java with bicubic to a size
+     *  picked from the requested render size. The chosen source size is
+     *  the next power of two ≥ 2 × displaySize, so GPU GL_LINEAR sees a
+     *  ≤ 2× downscale ratio — well within its sweet spot, no stairstep
+     *  aliasing.
+     *
+     *  Example: displaySize=11 → store at 32×32. displaySize=22 → 64×64.
+     *  displaySize=48 → 128×128. */
+    public static ResourceLocation getResourcePathAtSize(String s, int displaySize) {
+        if (s == null || s.isEmpty()) return null;
+        int storeSize = nextPowerOfTwoAtLeast16(Math.max(8, displaySize) * 2);
+        String key = s + "@" + storeSize;
+
+        ResourceLocation cached = SIZED_RESOURCE_CACHE.get(key);
+        if (cached != null) return cached;
+
+        try (InputStream in = HUD.class.getResourceAsStream(s)) {
+            if (in == null) return null;
+            BufferedImage src = ImageIO.read(in);
+            if (src == null) return null;
+            BufferedImage scaled = downscaleIfLarge(src, storeSize);
+
+            String textureKey = "crow_sized/" + s.replace('\\', '/')
+                    .replace("/", "_")
+                    .replace(".", "_") + "_" + storeSize;
+            ResourceLocation location = Minecraft.getMinecraft().renderEngine
+                    .getDynamicTextureLocation(textureKey, new DynamicTexture(scaled));
+
+            try {
+                Minecraft.getMinecraft().getTextureManager().bindTexture(location);
+                GL11.glTexParameteri(GL11.GL_TEXTURE_2D,
+                        GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
+                GL11.glTexParameteri(GL11.GL_TEXTURE_2D,
+                        GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+                GL11.glTexParameteri(GL11.GL_TEXTURE_2D,
+                        GL11.GL_TEXTURE_WRAP_S, GL11.GL_CLAMP);
+                GL11.glTexParameteri(GL11.GL_TEXTURE_2D,
+                        GL11.GL_TEXTURE_WRAP_T, GL11.GL_CLAMP);
+            } catch (Throwable ignored) {}
+
+            SIZED_RESOURCE_CACHE.put(key, location);
+            return location;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    /** Bind an icon texture and configure smooth filtering. Use this
+     *  instead of {@code bindTexture + glTexParameteri} pairs at every
+     *  call site. */
+    public static void bindSmoothIcon(ResourceLocation location) {
+        Minecraft.getMinecraft().getTextureManager().bindTexture(location);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL11.GL_CLAMP);
+        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL11.GL_CLAMP);
+    }
+
     public static ResourceLocation getResourcePath(String s) {
         if (s == null || s.isEmpty()) return null;
 
@@ -506,11 +852,39 @@ public class RenderUtils {
             BufferedImage bufferedImage = ImageIO.read(resourceInputStream);
             if (bufferedImage == null) return null;
 
+            // Pre-scale heuristic. Icon-like sources (square-ish and not
+            // huge) get clamped to a small max edge with bicubic so they
+            // alias gracefully at the typical icon render sizes. Wider
+            // assets (backgrounds, photos) keep their resolution up to
+            // the larger cap.
+            int maxEdge = looksLikeIcon(bufferedImage)
+                    ? ICON_MAX_EDGE
+                    : RESOURCE_MAX_EDGE;
+            bufferedImage = downscaleIfLarge(bufferedImage, maxEdge);
+
             String textureKey = "crow/" + s.replace('\\', '/')
                     .replace("/", "_")
                     .replace(".", "_");
             ResourceLocation location = Minecraft.getMinecraft().renderEngine
                     .getDynamicTextureLocation(textureKey, new DynamicTexture(bufferedImage));
+
+            // Force linear filter once at load — the filter state persists
+            // on the texture object, but bindSmoothIcon also reapplies it
+            // every bind so DynamicTexture's default NEAREST never sneaks
+            // through.
+            try {
+                Minecraft.getMinecraft().getTextureManager().bindTexture(location);
+                GL11.glTexParameteri(GL11.GL_TEXTURE_2D,
+                        GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
+                GL11.glTexParameteri(GL11.GL_TEXTURE_2D,
+                        GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+                GL11.glTexParameteri(GL11.GL_TEXTURE_2D,
+                        GL11.GL_TEXTURE_WRAP_S, GL11.GL_CLAMP);
+                GL11.glTexParameteri(GL11.GL_TEXTURE_2D,
+                        GL11.GL_TEXTURE_WRAP_T, GL11.GL_CLAMP);
+            } catch (Throwable ignored) {
+            }
+
             RESOURCE_CACHE.put(s, location);
             return location;
         } catch (Throwable ignored) {
@@ -518,11 +892,81 @@ public class RenderUtils {
         }
     }
 
+    /** Heuristic: square-ish images at or below the icon cap (or up to
+     *  about 1k, accommodating the high-res crow.png) read as icons.
+     *  Non-square / very large images are treated as backgrounds. */
+    private static boolean looksLikeIcon(BufferedImage img) {
+        int w = img.getWidth(), h = img.getHeight();
+        int longEdge = Math.max(w, h);
+        int shortEdge = Math.min(w, h);
+        // Bail on huge images.
+        if (longEdge > 1024) return false;
+        // Aspect ratio within 1.4× both ways → icon-shaped.
+        return (longEdge * 4) <= (shortEdge * 6);
+    }
+
+    /** Bicubic downscale to a max edge, preserving aspect. No-op if the
+     *  source is already within the limit. */
+    private static BufferedImage downscaleIfLarge(BufferedImage src, int maxEdge) {
+        int w = src.getWidth(), h = src.getHeight();
+        if (w <= maxEdge && h <= maxEdge) return src;
+        float scale = Math.min(maxEdge / (float) w, maxEdge / (float) h);
+        int newW = Math.max(1, Math.round(w * scale));
+        int newH = Math.max(1, Math.round(h * scale));
+        BufferedImage out = new BufferedImage(newW, newH, BufferedImage.TYPE_INT_ARGB);
+        java.awt.Graphics2D g = out.createGraphics();
+        g.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
+                java.awt.RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+        g.setRenderingHint(java.awt.RenderingHints.KEY_RENDERING,
+                java.awt.RenderingHints.VALUE_RENDER_QUALITY);
+        g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING,
+                java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+        g.drawImage(src, 0, 0, newW, newH, null);
+        g.dispose();
+        return out;
+    }
+
     private static int sdfShader = -1;
     private static int sdfU_Color = -1;
     private static int sdfU_CenterPx = -1;
     private static int sdfU_HalfSizePx = -1;
     private static int sdfU_RadiiPx = -1;
+    private static int sdfU_ClipCenter = -1;
+    private static int sdfU_ClipHalfPx = -1;
+    private static int sdfU_ClipRadii = -1;
+
+    /* ---- Rounded clip region, applied to every SDF shape while set. ---- */
+    private static boolean clipActive;
+    private static float clipX, clipY, clipX1, clipY1, clipRadius;
+    private static boolean[] clipCorners = ALL_CORNERS;
+
+    /**
+     * Clip every subsequent {@link #drawRoundedRectAA} to a rounded rect,
+     * antialiased along the clip edge.
+     *
+     * <p>The companion to a scissor, not a replacement: a scissor is
+     * axis-aligned, so content that runs to the edge of a rounded panel
+     * squares off its corners. Doing it here rather than with a stencil mask
+     * is what keeps the clipped corner smooth — a stencil is one bit per
+     * sample, so masking with one stairsteps the curve.
+     *
+     * <p>Only shapes drawn through the SDF shader are clipped; text, textures
+     * and raw {@code Gui.drawRect} still need the scissor. Always pair with
+     * {@link #clearRoundedClip()}.
+     *
+     * @param round corner mask, {TL, BL, BR, TR}
+     */
+    public static void setRoundedClip(float x, float y, float x1, float y1,
+                                      float radius, boolean[] round) {
+        clipActive = x1 > x && y1 > y;
+        clipX = x; clipY = y; clipX1 = x1; clipY1 = y1;
+        clipRadius = radius;
+        clipCorners = round == null ? ALL_CORNERS : round;
+    }
+
+    public static void clearRoundedClip() {
+        clipActive = false;
+    }
 
     private static int sdfArcShader = -1;
     private static int sdfArcU_Color = -1;
@@ -562,6 +1006,13 @@ public class RenderUtils {
                 "uniform vec2 uCenterPx;\n" +
                 "uniform vec2 uHalfSizePx;\n" +
                 "uniform vec4 uRadiiPx;\n" +
+                // Rounded clip region. Antialiased in the same pass as the
+                // shape, which a stencil mask cannot be — stencil is one bit
+                // per sample, so a clipped corner comes out stairstepped.
+                // Effectively disabled by uploading a huge half-size.
+                "uniform vec2 uClipCenterPx;\n" +
+                "uniform vec2 uClipHalfPx;\n" +
+                "uniform vec4 uClipRadiiPx;\n" +
                 "void main() {\n" +
                 "  vec2 p = gl_FragCoord.xy - uCenterPx;\n" +
                 "  float r;\n" +
@@ -584,7 +1035,17 @@ public class RenderUtils {
                 "  float aa = clamp(fwidth(d), 0.5, 1.0);\n" +
 
                 "  float alpha = 1.0 - smoothstep(-aa, aa, d);\n" +
-                "  gl_FragColor = vec4(uColor.rgb, uColor.a * alpha);\n" +
+
+                "  vec2 cp = gl_FragCoord.xy - uClipCenterPx;\n" +
+                "  float cr;\n" +
+                "  if (cp.y > 0.0) cr = (cp.x > 0.0) ? uClipRadiiPx.y : uClipRadiiPx.x;\n" +
+                "  else            cr = (cp.x > 0.0) ? uClipRadiiPx.z : uClipRadiiPx.w;\n" +
+                "  vec2 cq = abs(cp) - uClipHalfPx + vec2(cr);\n" +
+                "  float cd = length(max(cq, vec2(0.0))) + min(max(cq.x, cq.y), 0.0) - cr;\n" +
+                "  float caa = clamp(fwidth(cd), 0.5, 1.0);\n" +
+                "  float clipA = 1.0 - smoothstep(-caa, caa, cd);\n" +
+
+                "  gl_FragColor = vec4(uColor.rgb, uColor.a * alpha * clipA);\n" +
                 "}\n";
 
             int vId = GL20.glCreateShader(GL20.GL_VERTEX_SHADER);
@@ -622,6 +1083,9 @@ public class RenderUtils {
             sdfU_CenterPx   = GL20.glGetUniformLocation(program, "uCenterPx");
             sdfU_HalfSizePx = GL20.glGetUniformLocation(program, "uHalfSizePx");
             sdfU_RadiiPx    = GL20.glGetUniformLocation(program, "uRadiiPx");
+            sdfU_ClipCenter = GL20.glGetUniformLocation(program, "uClipCenterPx");
+            sdfU_ClipHalfPx = GL20.glGetUniformLocation(program, "uClipHalfPx");
+            sdfU_ClipRadii  = GL20.glGetUniformLocation(program, "uClipRadiiPx");
             sdfDiagLog("shader compiled OK (program=" + program
                     + ", uniforms color=" + sdfU_Color + " center=" + sdfU_CenterPx
                     + " halfSize=" + sdfU_HalfSizePx + " radii=" + sdfU_RadiiPx + ")");
@@ -639,11 +1103,11 @@ public class RenderUtils {
                                          float radiusBRGui, float radiusTRGui,
                                          float r, float g, float b, float a) {
 
-        java.nio.FloatBuffer mv = BufferUtils.createFloatBuffer(16);
+        java.nio.FloatBuffer mv = SCRATCH_MV; mv.rewind();
         GL11.glGetFloat(GL11.GL_MODELVIEW_MATRIX, mv);
-        java.nio.FloatBuffer pr = BufferUtils.createFloatBuffer(16);
+        java.nio.FloatBuffer pr = SCRATCH_PR; pr.rewind();
         GL11.glGetFloat(GL11.GL_PROJECTION_MATRIX, pr);
-        java.nio.IntBuffer vp = BufferUtils.createIntBuffer(16);
+        java.nio.IntBuffer vp = SCRATCH_VP; vp.rewind();
         GL11.glGetInteger(GL11.GL_VIEWPORT, vp);
 
         float mvSx = mv.get(0),  mvSy = mv.get(5);
@@ -682,6 +1146,27 @@ public class RenderUtils {
         GL20.glUniform2f(sdfU_HalfSizePx, halfWPx, halfHPx);
 
         GL20.glUniform4f(sdfU_RadiiPx, rTLPx, rTRPx, rBRPx, rBLPx);
+
+        // Clip uniforms go up every call: the shader is shared, so leaving a
+        // stale clip set would silently carve up whatever draws next.
+        if (clipActive) {
+            float ccxGui = (clipX + clipX1) * 0.5F;
+            float ccyGui = (clipY + clipY1) * 0.5F;
+            float ccxPx = ((pSx * (mvSx * ccxGui + mvTx) + pTx) + 1.0F) * 0.5F * vpW + vpX;
+            float ccyPx = ((pSy * (mvSy * ccyGui + mvTy) + pTy) + 1.0F) * 0.5F * vpH + vpY;
+            float chwPx = (clipX1 - clipX) * 0.5F * pxPerGuiX;
+            float chhPx = (clipY1 - clipY) * 0.5F * pxPerGuiY;
+            float cR = Math.max(0.0F, Math.min(clipRadius * scale, Math.min(chwPx, chhPx)));
+            GL20.glUniform2f(sdfU_ClipCenter, ccxPx, ccyPx);
+            GL20.glUniform2f(sdfU_ClipHalfPx, chwPx, chhPx);
+            GL20.glUniform4f(sdfU_ClipRadii,
+                    clipCorners[0] ? cR : 0.0F, clipCorners[3] ? cR : 0.0F,
+                    clipCorners[2] ? cR : 0.0F, clipCorners[1] ? cR : 0.0F);
+        } else {
+            GL20.glUniform2f(sdfU_ClipCenter, 0.0F, 0.0F);
+            GL20.glUniform2f(sdfU_ClipHalfPx, 1.0E7F, 1.0E7F);
+            GL20.glUniform4f(sdfU_ClipRadii, 0.0F, 0.0F, 0.0F, 0.0F);
+        }
 
         boolean leftAA   = radiusTLGui > 0.0F || radiusBLGui > 0.0F;
         boolean rightAA  = radiusTRGui > 0.0F || radiusBRGui > 0.0F;
@@ -728,7 +1213,7 @@ public class RenderUtils {
             return;
         }
         if (!sdfFirstCallLogged) {
-            java.nio.IntBuffer dbgVp = BufferUtils.createIntBuffer(16);
+            java.nio.IntBuffer dbgVp = SCRATCH_VP; dbgVp.rewind();
             GL11.glGetInteger(GL11.GL_VIEWPORT, dbgVp);
             sdfDiagLog("AA path active. rect=(" + x + "," + y + ")-("
                     + x1 + "," + y1 + ") r=" + radius
@@ -913,11 +1398,11 @@ public class RenderUtils {
             return;
         }
 
-        java.nio.FloatBuffer mv = BufferUtils.createFloatBuffer(16);
+        java.nio.FloatBuffer mv = SCRATCH_MV; mv.rewind();
         GL11.glGetFloat(GL11.GL_MODELVIEW_MATRIX, mv);
-        java.nio.FloatBuffer pr = BufferUtils.createFloatBuffer(16);
+        java.nio.FloatBuffer pr = SCRATCH_PR; pr.rewind();
         GL11.glGetFloat(GL11.GL_PROJECTION_MATRIX, pr);
-        java.nio.IntBuffer vp = BufferUtils.createIntBuffer(16);
+        java.nio.IntBuffer vp = SCRATCH_VP; vp.rewind();
         GL11.glGetInteger(GL11.GL_VIEWPORT, vp);
 
         float mvSx = mv.get(0),  mvSy = mv.get(5);
@@ -999,6 +1484,7 @@ public class RenderUtils {
     private static int shadowShader = -1;
     private static int shadowU_Color = -1;
     private static int shadowU_CenterPx = -1;
+    private static int shadowU_PanelCenter = -1;
     private static int shadowU_HalfSizePx = -1;
     private static int shadowU_RadiusPx = -1;
     private static int shadowU_BlurPx = -1;
@@ -1019,6 +1505,9 @@ public class RenderUtils {
                 "#version 120\n" +
                 "uniform vec4 uColor;\n" +
                 "uniform vec2 uCenterPx;\n" +
+                // Centre of the caster itself, i.e. uCenterPx minus the drop
+                // offset. Only used for the knockout below.
+                "uniform vec2 uPanelCenterPx;\n" +
                 "uniform vec2 uHalfSizePx;\n" +
                 "uniform float uRadiusPx;\n" +
                 "uniform float uBlurPx;\n" +
@@ -1028,8 +1517,28 @@ public class RenderUtils {
                 "  vec2 q = abs(p) - uHalfSizePx + vec2(uRadiusPx);\n" +
                 "  float d = length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0) - uRadiusPx;\n" +
 
-                "  float t = max(d, 0.0) / max(uBlurPx, 0.5);\n" +
-                "  float alpha = uColor.a * exp(-t * t);\n" +
+                // Gaussian-CDF falloff centered on the silhouette, like a
+                // real blurred silhouette (CSS box-shadow). The old
+                // exp(-t*t) held ~full alpha for the first half-sigma past
+                // the edge, which rendered as a hard dark rim — a stretched
+                // copy of the panel — instead of a blur.
+                "  float sigma = max(uBlurPx, 0.5);\n" +
+                "  float alpha = uColor.a * (1.0 - smoothstep(-sigma, sigma, d));\n" +
+                // Outer shadow only, like a non-inset CSS box-shadow. Without
+                // this the interior is filled, which is invisible under an
+                // opaque panel but shows straight through a translucent one
+                // and muddies the glass.
+                //
+                // Knocked out against the CASTER's silhouette, not the offset
+                // shadow's. Cutting against the offset copy clears a band as
+                // tall as the drop offset directly under the panel, so the
+                // shadow detaches and reads as a stray dark stripe floating
+                // below the panel instead of a contact shadow.
+                "  vec2 pp = gl_FragCoord.xy - uPanelCenterPx;\n" +
+                "  vec2 pq = abs(pp) - uHalfSizePx + vec2(uRadiusPx);\n" +
+                "  float dp = length(max(pq, vec2(0.0)))\n" +
+                "             + min(max(pq.x, pq.y), 0.0) - uRadiusPx;\n" +
+                "  alpha *= smoothstep(-1.0, 0.5, dp);\n" +
                 "  gl_FragColor = vec4(uColor.rgb, alpha);\n" +
                 "}\n";
 
@@ -1063,6 +1572,7 @@ public class RenderUtils {
             shadowShader      = program;
             shadowU_Color     = GL20.glGetUniformLocation(program, "uColor");
             shadowU_CenterPx  = GL20.glGetUniformLocation(program, "uCenterPx");
+            shadowU_PanelCenter = GL20.glGetUniformLocation(program, "uPanelCenterPx");
             shadowU_HalfSizePx = GL20.glGetUniformLocation(program, "uHalfSizePx");
             shadowU_RadiusPx  = GL20.glGetUniformLocation(program, "uRadiusPx");
             shadowU_BlurPx    = GL20.glGetUniformLocation(program, "uBlurPx");
@@ -1099,11 +1609,11 @@ public class RenderUtils {
 
         GL20.glUseProgram(shadowShader);
 
-        java.nio.FloatBuffer mv = BufferUtils.createFloatBuffer(16);
+        java.nio.FloatBuffer mv = SCRATCH_MV; mv.rewind();
         GL11.glGetFloat(GL11.GL_MODELVIEW_MATRIX, mv);
-        java.nio.FloatBuffer pr = BufferUtils.createFloatBuffer(16);
+        java.nio.FloatBuffer pr = SCRATCH_PR; pr.rewind();
         GL11.glGetFloat(GL11.GL_PROJECTION_MATRIX, pr);
-        java.nio.IntBuffer vp = BufferUtils.createIntBuffer(16);
+        java.nio.IntBuffer vp = SCRATCH_VP; vp.rewind();
         GL11.glGetInteger(GL11.GL_VIEWPORT, vp);
 
         float mvSx = mv.get(0),  mvSy = mv.get(5);
@@ -1157,7 +1667,9 @@ public class RenderUtils {
         GL20.glUniform1f(shadowU_RadiusPx, radiusPx);
         GL20.glUniform1f(shadowU_BlurPx, blurPx);
 
-        float padGui = shadowBlur * 2.5F + 2.0F / Math.max(1.0F, scale);
+        // The CDF falloff hits zero at exactly one sigma past the edge, so
+        // anything beyond blur + a pixel of AA margin is wasted fill.
+        float padGui = shadowBlur * 1.25F + 2.0F / Math.max(1.0F, scale);
         float sx0 = x + shadowOffsetX - padGui;
         float sy0 = y + shadowOffsetY - padGui;
         float sx1 = x + shadowOffsetX + w + padGui;
@@ -1259,7 +1771,26 @@ public class RenderUtils {
         if (aInt == 0) aInt = 255;
 
         setupTextRectShader();
-        if (textRectShader <= 0) return;
+        if (textRectShader <= 0) {
+            // Shaderless fallback: plain textured quad, no corner rounding.
+            GlStateManager.enableBlend();
+            GlStateManager.enableTexture2D();
+            GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+            GlStateManager.color(((tintColor >> 16) & 0xFF) / 255.0F,
+                    ((tintColor >> 8) & 0xFF) / 255.0F,
+                    (tintColor & 0xFF) / 255.0F, aInt / 255.0F);
+            net.minecraft.client.renderer.Tessellator tess =
+                    net.minecraft.client.renderer.Tessellator.getInstance();
+            net.minecraft.client.renderer.WorldRenderer wr = tess.getWorldRenderer();
+            wr.begin(7, net.minecraft.client.renderer.vertex.DefaultVertexFormats.POSITION_TEX);
+            wr.pos(x,     y + h, 0.0D).tex(u0, v1).endVertex();
+            wr.pos(x + w, y + h, 0.0D).tex(u1, v1).endVertex();
+            wr.pos(x + w, y,     0.0D).tex(u1, v0).endVertex();
+            wr.pos(x,     y,     0.0D).tex(u0, v0).endVertex();
+            tess.draw();
+            GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+            return;
+        }
 
         int prevProgram = GL11.glGetInteger(GL20.GL_CURRENT_PROGRAM);
 
@@ -1270,11 +1801,11 @@ public class RenderUtils {
         GL20.glUseProgram(textRectShader);
         GL20.glUniform1i(textRectU_Tex, 0);
 
-        java.nio.FloatBuffer mv = BufferUtils.createFloatBuffer(16);
+        java.nio.FloatBuffer mv = SCRATCH_MV; mv.rewind();
         GL11.glGetFloat(GL11.GL_MODELVIEW_MATRIX, mv);
-        java.nio.FloatBuffer pr = BufferUtils.createFloatBuffer(16);
+        java.nio.FloatBuffer pr = SCRATCH_PR; pr.rewind();
         GL11.glGetFloat(GL11.GL_PROJECTION_MATRIX, pr);
-        java.nio.IntBuffer vp = BufferUtils.createIntBuffer(16);
+        java.nio.IntBuffer vp = SCRATCH_VP; vp.rewind();
         GL11.glGetInteger(GL11.GL_VIEWPORT, vp);
 
         float mvSx = mv.get(0),  mvSy = mv.get(5);
@@ -1473,11 +2004,11 @@ public class RenderUtils {
 
         GL20.glUseProgram(chevronShader);
 
-        java.nio.FloatBuffer mv = BufferUtils.createFloatBuffer(16);
+        java.nio.FloatBuffer mv = SCRATCH_MV; mv.rewind();
         GL11.glGetFloat(GL11.GL_MODELVIEW_MATRIX, mv);
-        java.nio.FloatBuffer pr = BufferUtils.createFloatBuffer(16);
+        java.nio.FloatBuffer pr = SCRATCH_PR; pr.rewind();
         GL11.glGetFloat(GL11.GL_PROJECTION_MATRIX, pr);
-        java.nio.IntBuffer vp = BufferUtils.createIntBuffer(16);
+        java.nio.IntBuffer vp = SCRATCH_VP; vp.rewind();
         GL11.glGetInteger(GL11.GL_VIEWPORT, vp);
 
         float mvSx = mv.get(0),  mvSy = mv.get(5);

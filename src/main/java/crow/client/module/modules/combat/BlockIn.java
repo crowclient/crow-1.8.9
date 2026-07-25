@@ -98,13 +98,13 @@ public class BlockIn extends Module {
         }
 
         if (e.isPre()) {
-            tickPre(e);
+            tickPre();
         } else {
             tickPost();
         }
     }
 
-    private void tickPre(UpdateEvent e) {
+    private void tickPre() {
         placeThisPost = false;
 
         if (!active) {
@@ -172,16 +172,8 @@ public class BlockIn extends Module {
         req.maxPitchStepDeg = speed * 0.85f;
         req.stiffness = stiff;
         req.disableTremor = true;     // sub-degree wobble breaks RotationPlace
-        req.disableReaction = true;   // target switches between walls shouldn't stutter
         req.claimant = this;
         SilentAim.aim(req);
-
-        // Always apply to the event so the C03 packet carries the placement
-        // rotation. The event was constructed from rotationYaw at PRE-time,
-        // so even in visible mode where we update rotationYaw afterwards,
-        // the event's frozen yaw needs to be overwritten — otherwise the
-        // packet sends the pre-rotation value and Grim flags RotationPlace.
-        SilentAim.applyToUpdate(e);
 
         if (!silent.isToggled()) {
             // Visible mode also drives the player's actual camera. serverYaw

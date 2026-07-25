@@ -4,10 +4,12 @@ import com.google.common.eventbus.Subscribe;
 import crow.client.event.EventDirection;
 import crow.client.event.impl.PacketEvent;
 import crow.client.event.impl.TickEvent;
+import crow.client.main.Crow;
 import crow.client.module.Module;
 import crow.client.module.setting.impl.DescriptionSetting;
 import crow.client.module.setting.impl.SliderSetting;
 import crow.client.module.setting.impl.TickSetting;
+import crow.client.utils.PacketReplayGuard;
 import crow.client.utils.Utils;
 import net.minecraft.client.entity.EntityOtherPlayerMP;
 import net.minecraft.network.Packet;
@@ -55,6 +57,8 @@ public class BlinkInfinite extends Module {
             disable();
             return;
         }
+
+        disableBlink();
 
         packets.clear();
         releasingPackets = false;
@@ -119,7 +123,9 @@ public class BlinkInfinite extends Module {
         if (!Utils.Player.isPlayerInGame()) return;
         if (isSingleplayerSession()) return;
 
-        if (event.getDirection() == EventDirection.OUTGOING && !releasingPackets) {
+        if (event.getDirection() == EventDirection.OUTGOING) {
+            if (event.isCancelled() || releasingPackets || PacketReplayGuard.isReplaying()) return;
+
             Packet<?> packet = event.getPacket();
             if (!shouldIntercept(packet)) return;
 
@@ -161,7 +167,12 @@ public class BlinkInfinite extends Module {
 
         releasingPackets = true;
         try {
-            mc.getNetHandler().addToSendQueue(packet);
+            PacketReplayGuard.runGuarded(new Runnable() {
+                @Override
+                public void run() {
+                    mc.getNetHandler().addToSendQueue(packet);
+                }
+            });
         } finally {
             releasingPackets = false;
         }
@@ -175,10 +186,15 @@ public class BlinkInfinite extends Module {
         }
         releasingPackets = true;
         try {
-            Packet<?> packet;
-            while ((packet = packets.pollFirst()) != null) {
-                mc.getNetHandler().addToSendQueue(packet);
-            }
+            PacketReplayGuard.runGuarded(new Runnable() {
+                @Override
+                public void run() {
+                    Packet<?> packet;
+                    while ((packet = packets.pollFirst()) != null) {
+                        mc.getNetHandler().addToSendQueue(packet);
+                    }
+                }
+            });
         } finally {
             releasingPackets = false;
         }
@@ -214,5 +230,14 @@ public class BlinkInfinite extends Module {
 
     private boolean isSingleplayerSession() {
         return mc != null && mc.isSingleplayer();
+    }
+
+    private void disableBlink() {
+        if (Crow.moduleManager == null) return;
+
+        Module otherBlink = Crow.moduleManager.getModuleByClazz(Blink.class);
+        if (otherBlink != null && otherBlink.isEnabled()) {
+            otherBlink.disable();
+        }
     }
 }

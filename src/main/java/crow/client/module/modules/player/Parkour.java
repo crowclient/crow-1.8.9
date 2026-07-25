@@ -5,8 +5,8 @@ import crow.client.event.impl.TickEvent;
 import crow.client.module.Module;
 import crow.client.utils.CoolDown;
 import crow.client.utils.Utils;
+import net.minecraft.client.settings.GameSettings;
 import net.minecraft.client.settings.KeyBinding;
-import org.lwjgl.input.Keyboard;
 
 public class Parkour extends Module {
 
@@ -21,15 +21,30 @@ public class Parkour extends Module {
         if (!Utils.Player.isPlayerInGame())
             return;
 
-        if (!Keyboard.isKeyDown(mc.gameSettings.keyBindJump.getKeyCode()) && cd.firstFinish())
-            KeyBinding.setKeyBindState(mc.gameSettings.keyBindJump.getKeyCode(), false);
+        KeyBinding jumpBinding = getJumpBinding();
+        if (jumpBinding == null) return;
+
+        if (!GameSettings.isKeyDown(jumpBinding) && cd.firstFinish())
+            KeyBinding.setKeyBindState(jumpBinding.getKeyCode(), false);
 
         if (mc.thePlayer.onGround && Utils.Player.playerOverAir()
                 && (mc.thePlayer.motionX != 0 || mc.thePlayer.motionZ != 0)) {
-            KeyBinding.setKeyBindState(mc.gameSettings.keyBindJump.getKeyCode(), true);
+            KeyBinding.setKeyBindState(jumpBinding.getKeyCode(), true);
             cd.setCooldown(10);
             cd.start();
         }
+    }
+
+    @Override
+    public void onDisable() {
+        KeyBinding jumpBinding = getJumpBinding();
+        if (jumpBinding != null) {
+            KeyBinding.setKeyBindState(jumpBinding.getKeyCode(), GameSettings.isKeyDown(jumpBinding));
+        }
+    }
+
+    private KeyBinding getJumpBinding() {
+        return mc != null && mc.gameSettings != null ? mc.gameSettings.keyBindJump : null;
     }
 
 }
