@@ -137,10 +137,6 @@ public class KillAura extends Module {
     public void onUpdate(UpdateEvent e) {
         if (consumeTeleportReset()) return;
 
-        if (e.isPost()) {
-            runPostUpdate();
-            return;
-        }
         if (!e.isPre()) return;
 
         if (!Utils.Player.isPlayerInGame() || mc.currentScreen != null || mc.thePlayer == null || mc.playerController == null) {
@@ -226,9 +222,23 @@ public class KillAura extends Module {
         }
         req.claimant = this;
         SilentAim.aim(req);
+
+        runAttack();
     }
 
-    private void runPostUpdate() {
+    /**
+     * Attack, still inside UpdateEvent.PRE — i.e. <b>before</b> the C03 flying
+     * packet is written. Vanilla's clickMouse runs in {@code runTick} ahead of
+     * {@code theWorld.updateEntities()}, so a real client's C02 always precedes
+     * that tick's C03. Firing this on POST put the attack after the flying
+     * packet, which is exactly what Grim's Post check looks for.
+     *
+     * <p>Nothing about the rotation changes between PRE and POST — serverYaw was
+     * settled at {@code runTick} HEAD by {@link SilentAim#beginCycle()} — so the
+     * readiness and aim-stability tests below read the same values they did
+     * before the move.
+     */
+    private void runAttack() {
         if (!Utils.Player.isPlayerInGame() || mc.currentScreen != null
                 || mc.thePlayer == null || mc.playerController == null
                 || target == null || locked || !target.isEntityAlive()
@@ -309,8 +319,12 @@ public class KillAura extends Module {
 
                 if (ThreadLocalRandom.current().nextInt(100) >= 3
                         && mc.thePlayer.getDistanceToEntity(target) <= reach.getInput()) {
-                    mc.playerController.attackEntity(mc.thePlayer, target);
+                    // Swing FIRST. Minecraft.clickMouse calls swingItem() before
+                    // attackEntity(), so the wire order is C0A then C02. Sending
+                    // C02 first is Grim's PacketOrderB — a vanilla client can
+                    // never produce it.
                     mc.thePlayer.swingItem();
+                    mc.playerController.attackEntity(mc.thePlayer, target);
                 }
                 ticksSinceAttack = 0;
                 genLeftTimings();
