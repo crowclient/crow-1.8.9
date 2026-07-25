@@ -319,14 +319,17 @@ public class PlayerESP extends Module {
         int barHeight = bottom - top;
         int filled    = (int) (barHeight * healthRatio);
 
+        float r = barWidth / 2.0F;
         if (outline.isToggled()) {
-            Gui.drawRect(barX - 1, top - 1, barX + barWidth + 1, bottom + 1, 0xFF000000);
+            RenderUtils.drawRoundedRectAA(barX - 1, top - 1, barX + barWidth + 1, bottom + 1, r + 1, 0xFF000000);
         }
-        Gui.drawRect(barX, top, barX + barWidth, bottom, 0xFF222222);
+        RenderUtils.drawRoundedRectAA(barX, top, barX + barWidth, bottom, r, 0xC0161920);
 
         int red       = (int) (255 * (1.0F - healthRatio));
         int green     = (int) (255 * healthRatio);
         int fillColor = 0xFF000000 | (red << 16) | (green << 8);
-        Gui.drawRect(barX, bottom - filled, barX + barWidth, bottom, fillColor);
+        if (filled > 0) {
+            RenderUtils.drawRoundedRectAA(barX, bottom - Math.max(filled, barWidth), barX + barWidth, bottom, r, fillColor);
+        }
     }
 }

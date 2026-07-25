@@ -1,5 +1,6 @@
 package crow.client.clickgui.compact;
 
+import crow.client.module.modules.client.GuiModule;
 import crow.client.module.modules.client.GuiModule.CompactPalette;
 import crow.client.module.setting.impl.DoubleSliderSetting;
 import crow.client.utils.RenderUtils;
@@ -17,6 +18,17 @@ public class CompactDoubleSlider {
     private float smoothMax = -1.0F;
 
     private float activeAnimation;
+    private long lastFrameNanos;
+
+    /** Seconds since the previous draw, clamped so a stall doesn't teleport
+     *  the handles. */
+    private float deltaSeconds() {
+        long now = System.nanoTime();
+        long prev = lastFrameNanos;
+        lastFrameNanos = now;
+        if (prev == 0L) return 1.0F / 60.0F;
+        return Math.min(0.1F, (now - prev) / 1.0E9F);
+    }
 
     public CompactDoubleSlider(DoubleSliderSetting setting) {
         this.setting = setting;
@@ -66,7 +78,10 @@ public class CompactDoubleSlider {
 
         float targetMin = (float) ((setting.getInputMin() - setting.getMin()) / (setting.getMax() - setting.getMin()));
         float targetMax = (float) ((setting.getInputMax() - setting.getMin()) / (setting.getMax() - setting.getMin()));
-        float speed = dragging ? 0.45F : 0.18F;
+        // Frame-rate independent: a fixed per-frame fraction moved the
+        // handles more than twice as fast at 240fps as at 60.
+        float dt = deltaSeconds();
+        float speed = 1.0F - (float) Math.exp(-dt * (dragging ? 34.0 : 12.0));
 
         if (smoothMin < 0.0F) {
             smoothMin = targetMin;
@@ -78,7 +93,8 @@ public class CompactDoubleSlider {
             if (Math.abs(targetMax - smoothMax) < 0.002F) smoothMax = targetMax;
         }
 
-        activeAnimation += ((dragging ? 1.0F : 0.0F) - activeAnimation) * 0.20F;
+        activeAnimation += ((dragging ? 1.0F : 0.0F) - activeAnimation)
+                * (1.0F - (float) Math.exp(-dt * 13.0));
 
         FontUtil.semiBold.drawSmoothString(setting.getName(), x, y + 1, palette.titleText);
         FontUtil.small.drawSmoothString(valueText, x + w - currentValueWidth, y + 2, palette.mutedText);
@@ -90,7 +106,7 @@ public class CompactDoubleSlider {
         int minX = x + (int) (trackWidth * smoothMin);
         int maxX = x + (int) (trackWidth * smoothMax);
         if (maxX > minX) {
-            int fillColor = CompactModuleCard.blendColor(palette.toggleOff, palette.accent, 0.65F);
+            int fillColor = CompactModuleCard.blendColor(palette.toggleOff, GuiModule.accent(), 0.65F);
             RenderUtils.drawRoundedRectAA(minX, barY, maxX, barY + barH, 3, fillColor);
             int gradientAlpha = (int) (165 + activeAnimation * 50);
             RenderUtils.drawFlowingGradientRoundedRect(minX, barY, maxX, barY + barH, 3,
@@ -106,7 +122,7 @@ public class CompactDoubleSlider {
         if (activeAnimation > 0.02F) {
             int glowR = knobR + 4;
             int glowAlpha = (int) (40 * activeAnimation);
-            int glowColor = (glowAlpha << 24) | (palette.accent & 0x00FFFFFF);
+            int glowColor = (glowAlpha << 24) | (GuiModule.accent() & 0x00FFFFFF);
             if (activeHandle == Handle.MIN || !dragging) {
                 RenderUtils.drawRoundedRectAA(minX - glowR, knobY - glowR,
                         minX + glowR, knobY + glowR, glowR, glowColor);

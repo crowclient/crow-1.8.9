@@ -83,7 +83,8 @@ public class SpaciousCombo {
         int drawDropH = Math.max(1, (int) (rawDropH * expandT));
 
         int bodyColor = CompactModuleCard.blendColor(palette.background, palette.card, 0.45F);
-        RenderUtils.drawRoundedRectAA(x, dropY, x + w, dropY + drawDropH, 4, bodyColor);
+        RenderUtils.drawGlassPanel(x, dropY, x + w, dropY + drawDropH, 4, bodyColor,
+                (int) (RenderUtils.GLASS_SHADOW_RAISED * expandT));
 
         if (optionHovers == null || optionHovers.length != options.length) {
             optionHovers = new Animation[options.length];

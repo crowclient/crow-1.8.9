@@ -7,12 +7,14 @@ import crow.client.event.impl.Render2DEvent;
 import crow.client.main.Crow;
 import crow.client.module.Module;
 import crow.client.utils.RenderUtils;
+import crow.client.utils.SilentAim;
 import crow.client.utils.Utils;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraftforge.client.event.ClientChatReceivedEvent;
 import net.minecraftforge.client.event.DrawBlockHighlightEvent;
 import net.minecraftforge.client.event.MouseEvent;
+import net.minecraftforge.client.event.RenderPlayerEvent;
 import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.event.entity.EntityJoinWorldEvent;
 import net.minecraftforge.event.entity.living.LivingEvent;
@@ -27,7 +29,6 @@ public class ForgeEventListener {
     public void onTick(TickEvent.ClientTickEvent e) {
         try {
             if (e.phase == TickEvent.Phase.END) {
-                Crow.eventBus.post(new crow.client.event.impl.TickEvent());
                 if (Utils.Player.isPlayerInGame())
                     for (Module module : Crow.moduleManager.getModules())
                         if (Minecraft.getMinecraft().currentScreen instanceof ClickGui)
@@ -147,6 +148,16 @@ public class ForgeEventListener {
     @SubscribeEvent
     public void onClientChatReceived(ClientChatReceivedEvent e) {
         try { Crow.eventBus.post(new ForgeEvent(e)); } catch (Throwable t) { logHandlerError("onClientChatReceived", null, t); }
+    }
+
+    @SubscribeEvent
+    public void onRenderPlayerPre(RenderPlayerEvent.Pre e) {
+        try { SilentAim.beginPlayerRender(e.entityPlayer); } catch (Throwable t) { logHandlerError("onRenderPlayerPre", null, t); }
+    }
+
+    @SubscribeEvent
+    public void onRenderPlayerPost(RenderPlayerEvent.Post e) {
+        try { SilentAim.endPlayerRender(e.entityPlayer); } catch (Throwable t) { logHandlerError("onRenderPlayerPost", null, t); }
     }
 
     @SubscribeEvent

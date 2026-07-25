@@ -14,6 +14,7 @@ import crow.client.main.Crow;
 import crow.client.module.Module;
 import crow.client.module.modules.movement.NoSlow;
 import crow.client.module.modules.movement.Sprint;
+import crow.client.utils.SilentAim;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.audio.PositionedSoundRecord;
 import net.minecraft.client.entity.AbstractClientPlayer;
@@ -133,6 +134,10 @@ public abstract class MixinEntityPlayerSP extends AbstractClientPlayer {
             UpdateEvent e = new UpdateEvent(EventTiming.PRE, this.posX, this.getEntityBoundingBox().minY, this.posZ,
                     this.rotationYaw, this.rotationPitch, this.onGround);
             Crow.eventBus.post(e);
+            // After every module has been polled, so the packet carries the
+            // silent rotation on every tick moveFlying was steered by it —
+            // including the glide back to the camera, which no module owns.
+            SilentAim.applyToUpdate(e);
 
             double d0 = e.getX() - this.lastReportedPosX;
             double d1 = e.getY() - this.lastReportedPosY;
@@ -249,7 +254,7 @@ public abstract class MixinEntityPlayerSP extends AbstractClientPlayer {
 
             MovementInput var10000 = this.movementInput;
 
-            if (noSlow.isEnabled()) {
+            if (noSlowEnabled) {
                 float slowdown = (float) ((100 - NoSlow.slowPercent.getInput()) / 100F);
                 var10000.moveStrafe *= slowdown;
                 var10000.moveForward *= slowdown;
@@ -270,9 +275,9 @@ public abstract class MixinEntityPlayerSP extends AbstractClientPlayer {
                 this.posZ + ((double) this.width * 0.35D));
         boolean flag3 = ((float) this.getFoodStats().getFoodLevel() > 6.0F) || this.capabilities.allowFlying;
         if (this.onGround && !flag1 && !flag2
-                && ((this.movementInput.moveForward >= f) || (sprint.isEnabled() && Sprint.multiDir.isToggled()
+                && ((this.movementInput.moveForward >= f) || (sprintMultiDir
                         && ((movementInput.moveForward != 0) || (movementInput.moveStrafe != 0))))
-                && !this.isSprinting() && flag3 && (!this.isUsingItem() || noSlow.isEnabled())
+                && !this.isSprinting() && flag3 && (!this.isUsingItem() || noSlowEnabled)
                 && !this.isPotionActive(Potion.blindness))
 			if ((this.sprintToggleTimer <= 0) && !this.mc.gameSettings.keyBindSprint.isKeyDown())
 				this.sprintToggleTimer = 7;
@@ -280,14 +285,14 @@ public abstract class MixinEntityPlayerSP extends AbstractClientPlayer {
 				this.setSprinting(true);
 
         if (!this.isSprinting()
-                && ((this.movementInput.moveForward >= f) || (sprint.isEnabled() && Sprint.multiDir.isToggled()
+                && ((this.movementInput.moveForward >= f) || (sprintMultiDir
                         && ((movementInput.moveForward != 0) || (movementInput.moveStrafe != 0))))
-                && flag3 && (!this.isUsingItem() || noSlow.isEnabled())
+                && flag3 && (!this.isUsingItem() || noSlowEnabled)
                 && !this.isPotionActive(Potion.blindness)
                 && this.mc.gameSettings.keyBindSprint.isKeyDown())
 			this.setSprinting(true);
 
-        if (this.isSprinting() && (((sprint.isEnabled() && Sprint.multiDir.isToggled())
+        if (this.isSprinting() && ((sprintMultiDir
                 ? !((movementInput.moveForward != 0) || (movementInput.moveStrafe != 0))
                 : this.movementInput.moveForward < f) || this.isCollidedHorizontally || !flag3))
 			this.setSprinting(false);
@@ -338,7 +343,28 @@ public abstract class MixinEntityPlayerSP extends AbstractClientPlayer {
         } else
 			this.horseJumpPower = 0.0F;
 
-        super.onLivingUpdate();
+        // Run the whole movement phase on the yaw we are about to report.
+        //
+        // moveFlying was already routed through MoveInputEvent, but that is not
+        // the only consumer: EntityLivingBase.jump() applies the sprint-jump
+        // boost straight off this.rotationYaw (EntityLivingBase:1573-1578), and
+        // both jump() and moveEntityWithHeading live inside super.onLivingUpdate.
+        // Sprint-jumping under silent aim therefore boosted along the camera yaw
+        // while the server rebuilt it from the packet yaw — a ~0.4 motion error
+        // on every sprint-jump, which is a guaranteed Simulation offset.
+        //
+        // Swapping here instead of patching jump() covers every consumer in the
+        // phase at once. It also lands rotationYawHead (set from rotationYaw in
+        // EntityPlayer.onLivingUpdate) and renderYawOffset on the reported yaw,
+        // so the third-person model follows the silent rotation for free.
+        boolean silentYaw = SilentAim.isActive();
+        float cameraYaw = this.rotationYaw;
+        if (silentYaw) this.rotationYaw = SilentAim.getServerYaw();
+        try {
+            super.onLivingUpdate();
+        } finally {
+            if (silentYaw) this.rotationYaw = cameraYaw;
+        }
         if (this.onGround && this.capabilities.isFlying && !this.mc.playerController.isSpectatorMode()) {
             this.capabilities.isFlying = false;
             this.sendPlayerAbilities();

@@ -8,6 +8,7 @@ import java.util.Random;
 import org.lwjgl.opengl.GL11;
 
 import crow.client.module.modules.client.GuiModule;
+import crow.client.utils.Icons;
 import crow.client.utils.RenderUtils;
 import crow.client.utils.font.FontUtil;
 import net.minecraft.client.gui.GuiButton;
@@ -29,9 +30,9 @@ public class CrowMainMenu extends GuiScreen implements GuiYesNoCallback {
     private static final ResourceLocation CROW_ICON       = RenderUtils.getResourcePath("/assets/crow/crow.png");
     private static final ResourceLocation MENU_BACKGROUND = RenderUtils.getResourcePath("/assets/crow/menubg.jpg");
 
-    private static final int PARTICLE_COUNT  = 36;
+    private static final int PARTICLE_COUNT  = 14;
     private static final int PANEL_WIDTH     = 296;
-    private static final int PANEL_HEIGHT    = 260;
+    private static final int PANEL_HEIGHT    = 222;
     private static final int BUTTON_HEIGHT   = 30;
     private static final int BUTTON_GAP      = 7;
     private static final int PANEL_TOP_OFFSET = -10;
@@ -77,20 +78,25 @@ public class CrowMainMenu extends GuiScreen implements GuiYesNoCallback {
         int buttonX = panelX + 22;
 
         int buttonsBlockH = BUTTON_HEIGHT * 4 + BUTTON_GAP * 3;
-        int desiredTop = panelY + 92;
-        int maxTop = panelY + PANEL_HEIGHT - 34 - buttonsBlockH;
+        int desiredTop = panelY + 54;
+        int maxTop = panelY + PANEL_HEIGHT - 18 - buttonsBlockH;
         int buttonStartY = Math.min(desiredTop, maxTop);
 
         int row = buttonStartY;
-        crowButtons.add(new CrowMenuButton(1, buttonX, row, buttonWidth, BUTTON_HEIGHT, "Singleplayer", 0));
+        crowButtons.add(new CrowMenuButton(1, buttonX, row, buttonWidth, BUTTON_HEIGHT,
+                "Singleplayer", 0, Icons.SINGLEPLAYER));
         row += BUTTON_HEIGHT + BUTTON_GAP;
-        crowButtons.add(new CrowMenuButton(2, buttonX, row, buttonWidth, BUTTON_HEIGHT, "Multiplayer", 1));
+        crowButtons.add(new CrowMenuButton(2, buttonX, row, buttonWidth, BUTTON_HEIGHT,
+                "Multiplayer", 1, Icons.MULTIPLAYER));
         row += BUTTON_HEIGHT + BUTTON_GAP;
-        crowButtons.add(new CrowMenuButton(3, buttonX, row, buttonWidth, BUTTON_HEIGHT, "Options", 2));
+        crowButtons.add(new CrowMenuButton(3, buttonX, row, buttonWidth, BUTTON_HEIGHT,
+                "Options", 2, Icons.OPTIONS));
         row += BUTTON_HEIGHT + BUTTON_GAP;
         int halfW = (buttonWidth - 8) / 2;
-        crowButtons.add(new CrowMenuButton(4, buttonX, row, halfW, BUTTON_HEIGHT, "Language", 3));
-        crowButtons.add(new CrowMenuButton(5, buttonX + halfW + 8, row, halfW, BUTTON_HEIGHT, "Quit", 3));
+        crowButtons.add(new CrowMenuButton(4, buttonX, row, halfW, BUTTON_HEIGHT,
+                "Language", 3, Icons.LANGUAGE));
+        crowButtons.add(new CrowMenuButton(5, buttonX + halfW + 8, row, halfW, BUTTON_HEIGHT,
+                "Quit", 3, Icons.QUIT));
 
         for (int i = 0; i < PARTICLE_COUNT; i++) particles.add(new MenuParticle());
 
@@ -144,20 +150,19 @@ public class CrowMainMenu extends GuiScreen implements GuiYesNoCallback {
                 button.draw(panelEased);
             }
 
-            String loggedIn = "Logged in as " + mc.getSession().getUsername();
-            drawSmall(loggedIn, panelX + 14, panelY + PANEL_HEIGHT - 18,
-                    withAlpha(0xFF8899AA, panelAlpha));
-
             GL11.glPopMatrix();
         }
 
         drawMenuSwitch(mouseX, mouseY, dt);
 
-        // Version badge — bottom-right, muted. Stripped the leading
-        // EnumChatFormatting code (FontUtil doesn't parse §-codes; it
-        // would render as a literal "§7" prefix on top of the text).
-        String version = "Build 1.2.9";
-        drawSmall(version, width - getSmallWidth(version) - 12, height - 18, 0x9AB4BBC7);
+        // Bare username at the bottom-left of the screen, bare version
+        // string at the bottom-right. Both float outside the panel.
+        String username = mc.getSession().getUsername();
+        drawSemiBold(username, 14, height - 22, 0xFFE4E8F0);
+
+        String version = "1.3";
+        int verW = getSemiBoldWidth(version);
+        drawSemiBold(version, width - verW - 14, height - 22, 0xFFE4E8F0);
 
         super.drawScreen(mouseX, mouseY, partialTicks);
     }
@@ -172,8 +177,6 @@ public class CrowMainMenu extends GuiScreen implements GuiYesNoCallback {
             drawFallbackAtmosphere();
         }
 
-        drawAtmosphereBlobs(0.05F);
-
         drawParticles(partialTicks, 0.09F);
 
         // (Flowing-gradient overlay removed. Background reads cleaner
@@ -182,6 +185,29 @@ public class CrowMainMenu extends GuiScreen implements GuiYesNoCallback {
 
         int scrimAlpha = (int) (0x66 * bgRevealAnim);
         GuiScreen.drawRect(0, 0, width, height, (scrimAlpha << 24) | 0x080A10);
+    }
+
+    private void drawTexturedLayer(int x, int y, int w, int h, float alpha) {
+        if (alpha <= 0.0F) return;
+        GlStateManager.color(1.0F, 1.0F, 1.0F, Math.min(1.0F, alpha));
+        drawModalRectWithCustomSizedTexture(x, y, 0, 0, w, h, w, h);
+    }
+
+    /** Only used when menubg.jpg is missing — coloured blobs standing in for
+     *  the photo. Distinct from the near-invisible black overlay blobs that
+     *  used to draw on top of the photo as well; those were removed. */
+    private void drawFallbackAtmosphere() {
+
+        float dx = -parallaxX * 0.04F;
+        float dy = -parallaxY * 0.04F;
+        RenderUtils.drawRoundedRectAA(-60 + dx, 42 + dy,
+                width * 0.42F + dx, height * 0.42F + dy, 120, 0x182B3445);
+        RenderUtils.drawRoundedRectAA(width * 0.58F + dx, -30 + dy,
+                width + 50 + dx, height * 0.38F + dy, 140, 0x162B2238);
+        RenderUtils.drawRoundedRectAA(width * 0.08F + dx, height * 0.72F + dy,
+                width * 0.42F + dx, height + 70 + dy, 120, 0x14233530);
+        RenderUtils.drawRoundedRectAA(width * 0.70F + dx, height * 0.60F + dy,
+                width + 90 + dx, height + 80 + dy, 150, 0x142E2638);
     }
 
     private void drawParallaxBackground(float scalar) {
@@ -195,9 +221,7 @@ public class CrowMainMenu extends GuiScreen implements GuiYesNoCallback {
 
         GlStateManager.enableBlend();
         GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
-        mc.getTextureManager().bindTexture(MENU_BACKGROUND);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+        RenderUtils.bindSmoothIcon(MENU_BACKGROUND);
 
         float fadeIn = bgRevealAnim;
         drawTexturedLayer(drawX - 16, drawY - 10, drawW + 32, drawH + 20, 0.14F * fadeIn);
@@ -212,44 +236,6 @@ public class CrowMainMenu extends GuiScreen implements GuiYesNoCallback {
 
         int darkenAlpha = (int) (0x7A * fadeIn);
         GuiScreen.drawRect(0, 0, width, height, (darkenAlpha << 24) | 0x0A0B11);
-    }
-
-    private void drawAtmosphereBlobs(float scalar) {
-        float dx = -parallaxX * scalar;
-        float dy = -parallaxY * scalar;
-        float fade = bgRevealAnim;
-        int alpha = (int) (0x14 * fade);
-        if (alpha <= 0) return;
-
-        int color = (alpha << 24);
-        RenderUtils.drawRoundedRectAA(-40 + dx, -30 + dy,
-                width * 0.40F + dx, height * 0.36F + dy, 120, color);
-        RenderUtils.drawRoundedRectAA(width * 0.62F + dx, -30 + dy,
-                width + 50 + dx, height * 0.34F + dy, 140, color);
-        RenderUtils.drawRoundedRectAA(width * 0.12F + dx, height * 0.70F + dy,
-                width * 0.42F + dx, height + 60 + dy, 120, color);
-        RenderUtils.drawRoundedRectAA(width * 0.68F + dx, height * 0.62F + dy,
-                width + 80 + dx, height + 70 + dy, 160, color);
-    }
-
-    private void drawTexturedLayer(int x, int y, int w, int h, float alpha) {
-        if (alpha <= 0.0F) return;
-        GlStateManager.color(1.0F, 1.0F, 1.0F, Math.min(1.0F, alpha));
-        drawModalRectWithCustomSizedTexture(x, y, 0, 0, w, h, w, h);
-    }
-
-    private void drawFallbackAtmosphere() {
-
-        float dx = -parallaxX * 0.04F;
-        float dy = -parallaxY * 0.04F;
-        RenderUtils.drawRoundedRectAA(-60 + dx, 42 + dy,
-                width * 0.42F + dx, height * 0.42F + dy, 120, 0x182B3445);
-        RenderUtils.drawRoundedRectAA(width * 0.58F + dx, -30 + dy,
-                width + 50 + dx, height * 0.38F + dy, 140, 0x162B2238);
-        RenderUtils.drawRoundedRectAA(width * 0.08F + dx, height * 0.72F + dy,
-                width * 0.42F + dx, height + 70 + dy, 120, 0x14233530);
-        RenderUtils.drawRoundedRectAA(width * 0.70F + dx, height * 0.60F + dy,
-                width + 90 + dx, height + 80 + dy, 150, 0x142E2638);
     }
 
     private void drawParticles(float partialTicks, float parallaxScalar) {
@@ -268,34 +254,19 @@ public class CrowMainMenu extends GuiScreen implements GuiYesNoCallback {
     }
 
     private void drawPanel(int panelX, int panelY, int alpha) {
-
-        int shadowAlpha = clamp255((int) (alpha * 0.20F));
-        RenderUtils.drawRoundedRectAA(panelX - 10, panelY + 10,
-                panelX + PANEL_WIDTH + 10, panelY + PANEL_HEIGHT + 14,
-                24, (shadowAlpha << 24));
-
-        // Slightly cooler body — gives the panel a calmer feel against
-        // the warm parallax photo behind it.
-        int outerColor = (alpha << 24) | 0x161B24;
-        int innerColor = (clamp255((int) (alpha * 0.97F)) << 24) | 0x1F242F;
-        RenderUtils.drawRoundedRectAA(panelX, panelY,
-                panelX + PANEL_WIDTH, panelY + PANEL_HEIGHT, 22, outerColor);
-        RenderUtils.drawRoundedRectAA(panelX + 1, panelY + 1,
-                panelX + PANEL_WIDTH - 1, panelY + PANEL_HEIGHT - 1, 21, innerColor);
-
-        // Static 1-px hairline under the branding instead of a flowing
-        // gradient strip. Reads as a clean section divider, doesn't
-        // demand attention.
-        int sepAlpha = clamp255((int) (alpha * 0.16F));
-        RenderUtils.drawRoundedRectAA(panelX + 22, panelY + 78,
-                panelX + PANEL_WIDTH - 22, panelY + 79, 0.5F,
-                (sepAlpha << 24) | 0xFFFFFF);
+        // Frosted black glass — shared client-wide panel material (soft
+        // drop shadow + backdrop blur + near-black tint + lit rim + hairline).
+        RenderUtils.drawFrostedPanel(panelX, panelY,
+                panelX + PANEL_WIDTH, panelY + PANEL_HEIGHT, 16, alpha);
     }
 
     private void drawBranding(int panelX, int panelY, int panelWidth, int alpha) {
-        int iconSize = 32;
+        // Minimal brand row: small icon + bold "Crow" title, centered.
+        // No subtitle, no halo, no theme tint on the title — matches the
+        // clean look from the mock.
+        int iconSize = 22;
         int approxFontH = 20;
-        int gap = 9;
+        int gap = 7;
         int titleWidth = getBoldWidth("Crow");
         int rowWidth = iconSize + gap + titleWidth;
         int rowX = panelX + (panelWidth - rowWidth) / 2;
@@ -306,22 +277,13 @@ public class CrowMainMenu extends GuiScreen implements GuiYesNoCallback {
             GlStateManager.enableBlend();
             GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
             GlStateManager.color(1.0F, 1.0F, 1.0F, a);
-            mc.getTextureManager().bindTexture(CROW_ICON);
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+            RenderUtils.bindSmoothIcon(CROW_ICON);
             drawModalRectWithCustomSizedTexture(rowX, rowY, 0, 0, iconSize, iconSize, iconSize, iconSize);
             GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
         }
 
-        int titleColor = (alpha << 24) | (GuiModule.getThemeColor(0) & 0x00FFFFFF);
-        drawBold("Crow", rowX + iconSize + gap, rowY + (iconSize - approxFontH) / 2, titleColor);
-
-        // Muted subtitle — lower contrast than before so the title
-        // carries the focus.
-        String subtitle = "A cleaner way back into Minecraft.";
-        int subtitleWidth = getSemiBoldWidth(subtitle);
-        drawSemiBold(subtitle, panelX + (panelWidth - subtitleWidth) / 2.0F, panelY + 60,
-                withAlpha(0xFF8A92A0, alpha));
+        int titleColor = (alpha << 24) | 0xF4F6FA;
+        drawBold("Crow", rowX + iconSize + gap, rowY + (iconSize - approxFontH) / 2 + 1, titleColor);
     }
 
     private void drawMenuSwitch(int mouseX, int mouseY, float dt) {
@@ -341,12 +303,18 @@ public class CrowMainMenu extends GuiScreen implements GuiYesNoCallback {
         int border = blendColor(0x10000000, (0x36 << 24) | (themeColor & 0x00FFFFFF), menuSwitchAnim);
         int text = blendColor(0xFFD6DCE7, 0xFFFFFFFF, menuSwitchAnim);
 
-        RenderUtils.drawRoundedRectAA(x, y, x + w, y + h, 9, fill);
+        RenderUtils.drawGlassPanel(x, y, x + w, y + h, 9, fill, 0);
         if (menuSwitchAnim > 0.01F) {
             RenderUtils.drawRoundedRectAA(x, y, x + w, y + h, 9, hoverTint);
         }
         RenderUtils.drawRoundedOutline(x, y, x + w, y + h, 9, 1.0F, border);
-        drawSmall("Vanilla Menu", x + (w - getSmallWidth("Vanilla Menu")) / 2.0F, y + 7, text);
+
+        float glyphSize = 11.0F;
+        float label = getSmallWidth("Vanilla Menu");
+        float contentW = glyphSize + 5.0F + label;
+        float cx = x + (w - contentW) / 2.0F;
+        Icons.drawLeft(Icons.GAMEPAD, cx, y + h / 2.0F, glyphSize, text);
+        drawSmall("Vanilla Menu", cx + glyphSize + 5.0F, y + 7, text);
     }
 
     private boolean isMenuSwitchHovered(int mouseX, int mouseY) {
@@ -434,6 +402,11 @@ public class CrowMainMenu extends GuiScreen implements GuiYesNoCallback {
     private int getBoldWidth(String s) {
         return FontUtil.bold != null ? (int) FontUtil.bold.getStringWidth(s) : mc.fontRendererObj.getStringWidth(s);
     }
+    /** Height of the semiBold face, for vertically centering against an icon. */
+    private float textHeight() {
+        return FontUtil.semiBold != null ? FontUtil.semiBold.getHeight() : 8.0F;
+    }
+
     private int getSemiBoldWidth(String s) {
         return FontUtil.semiBold != null ? (int) FontUtil.semiBold.getStringWidth(s) : mc.fontRendererObj.getStringWidth(s);
     }
@@ -443,6 +416,7 @@ public class CrowMainMenu extends GuiScreen implements GuiYesNoCallback {
 
     private class CrowMenuButton extends GuiButton {
         private final int rowIndex;
+        private final String glyph;
         private float hoverAnim;
 
         private float revealAnim;
@@ -450,9 +424,10 @@ public class CrowMainMenu extends GuiScreen implements GuiYesNoCallback {
         private boolean hovered;
 
         private CrowMenuButton(int buttonId, int x, int y, int widthIn, int heightIn,
-                               String buttonText, int rowIndex) {
+                               String buttonText, int rowIndex, String glyph) {
             super(buttonId, x, y, widthIn, heightIn, buttonText);
             this.rowIndex = rowIndex;
+            this.glyph = glyph;
         }
 
         private void update(long now, float dt, int mouseX, int mouseY) {
@@ -470,54 +445,46 @@ public class CrowMainMenu extends GuiScreen implements GuiYesNoCallback {
             if (r < 0.005F) return;
 
             int alphaByte = clamp255((int) (r * 255));
-            float lift = hoverAnim * 1.0F;
 
             float entryOffset = (1.0F - easeOutCubic(revealAnim)) * 12.0F;
-            int top = (int) (yPosition - lift + entryOffset);
-            int bottom = (int) (yPosition + height - lift + entryOffset);
+            int top = (int) (yPosition + entryOffset);
+            int bottom = (int) (yPosition + height + entryOffset);
             float radius = 11;
 
-            int themeColor = GuiModule.getThemeColor(xPosition + width / 2);
-
-            // Base fill — slightly darker, more "card-like" feel. Hover
-            // blends toward a lifted shade and adds a soft theme tint.
-            int baseFill  = withAlpha(0xFF20252F, alphaByte);
-            int hoverFill = withAlpha(blendColor(0xFF20252F, 0xFF2C3340, hoverAnim), alphaByte);
+            // Dark glass row that lifts on hover, matching the click GUI's
+            // material instead of the old light-grey pill.
+            int baseFill  = withAlpha(0xC81A1D24, alphaByte);
+            int hoverFill = withAlpha(0xE22E3340, alphaByte);
             int finalFill = blendColor(baseFill, hoverFill, hoverAnim);
-            RenderUtils.drawRoundedRectAA(xPosition, top, xPosition + width, bottom, radius, finalFill);
+            RenderUtils.drawGlassPanel(xPosition, top, xPosition + width, bottom, radius,
+                    finalFill, 0);
 
-            if (hoverAnim > 0.01F) {
-                int tintAlpha = clamp255((int) (0x22 * hoverAnim * r));
-                int tint = (tintAlpha << 24) | (themeColor & 0x00FFFFFF);
-                RenderUtils.drawRoundedRectAA(xPosition, top, xPosition + width, bottom, radius, tint);
-            }
+            // Icon then label, both left-aligned. Centered text with nothing
+            // beside it gave every row an identical silhouette; the glyph is
+            // what you actually scan for.
+            int textColor = withAlpha(0xFFF2F4F8, alphaByte);
+            float cy = (top + bottom) / 2.0F;
+            // Icon + label are centered as one group, so the pair sits on the
+            // button's midpoint instead of the label hanging off a left-
+            // aligned icon. Both share `cy`, so they're centered on each other
+            // as well as on the button.
+            float iconSize = 13.0F;
+            float gap = 8.0F;
+            float iconW = crow.client.utils.Icons.width(glyph, iconSize);
+            float labelW = getSemiBoldWidth(displayString);
+            float groupW = iconW + (iconW > 0 ? gap : 0) + labelW;
+            float groupX = xPosition + (width - groupW) / 2.0F;
 
-            // Soft outline — fades from near-invisible at rest to a
-            // muted theme glow on hover. No flowing-gradient accent bar.
-            int borderColor = withAlpha(
-                    blendColor(0x12000000, (0x44 << 24) | (themeColor & 0x00FFFFFF), hoverAnim),
-                    alphaByte);
-            RenderUtils.drawRoundedOutline(xPosition, top, xPosition + width, bottom, radius, 1.0F, borderColor);
+            crow.client.utils.Icons.drawLeft(glyph, groupX, cy, iconSize, textColor);
+            drawSemiBold(displayString, groupX + iconW + (iconW > 0 ? gap : 0),
+                    cy - textHeight() / 2.0F, textColor);
 
-            // Left-edge theme dot — the new "I'm hovered" indicator.
-            // Solid, animates in cleanly with hover, no motion in the
-            // background. Replaces the flowing-gradient strip that used
-            // to live at the button's bottom edge.
+            // Chevron on hover — a quiet affordance that the row goes somewhere.
             if (hoverAnim > 0.02F) {
-                float dotProgress = easeOutCubic(hoverAnim);
-                int dotAlpha = clamp255((int) (0xE0 * dotProgress * r));
-                int dotColor = (dotAlpha << 24) | (themeColor & 0x00FFFFFF);
-                int dotCenterY = (top + bottom) / 2;
-                int dotR = 2;
-                int dotX = xPosition + 9;
-                RenderUtils.drawRoundedRectAA(dotX - dotR, dotCenterY - dotR,
-                        dotX + dotR, dotCenterY + dotR, dotR, dotColor);
+                crow.client.utils.Icons.draw(crow.client.utils.Icons.CARET_RIGHT,
+                        xPosition + width - 14.0F, cy, 11.0F,
+                        withAlpha(0xFFF2F4F8, (int) (alphaByte * hoverAnim * 0.75F)));
             }
-
-            int textColor = withAlpha(blendColor(0xFFD6DCE7, 0xFFFFFFFF, hoverAnim), alphaByte);
-            int textWidth = getSemiBoldWidth(displayString);
-            drawSemiBold(displayString, xPosition + (width - textWidth) / 2.0F,
-                    yPosition + 11 - lift + entryOffset, textColor);
         }
 
         private boolean isMouseOver(int mouseX, int mouseY) {
