@@ -37,8 +37,10 @@ public class WaterBucket extends Module {
     @Subscribe
     public void onTick(TickEvent ev) {
         if (Utils.Player.isPlayerInGame() && !mc.isGamePaused()) {
-            if (DimensionHelper.isPlayerInNether())
+            if (DimensionHelper.isPlayerInNether()) {
                 this.disable();
+                return;
+            }
 
             if (this.inPosition() && this.holdWaterBucket()) {
                 this.handling = true;

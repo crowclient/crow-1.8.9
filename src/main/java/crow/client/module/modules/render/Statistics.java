@@ -6,10 +6,10 @@ import crow.client.event.impl.Render2DEvent;
 import crow.client.module.Module;
 import crow.client.module.modules.HUD;
 import crow.client.module.modules.client.GuiModule;
-import crow.client.module.setting.impl.ComboSetting;
 import crow.client.module.setting.impl.SliderSetting;
 import crow.client.module.setting.impl.TickSetting;
 import crow.client.utils.GUIBlurUtil;
+import crow.client.utils.Icons;
 import crow.client.utils.RenderUtils;
 import crow.client.utils.Utils;
 import crow.client.utils.font.FontUtil;
@@ -30,9 +30,14 @@ import java.util.Date;
 import java.util.List;
 
 public class Statistics extends Module {
-    public enum DisplayMode { Bar, Modern, Exhibition, Classic, Minimal }
 
-    public static ComboSetting<DisplayMode> displayMode;
+    /** Shared HUD glass fill. Translucent enough that the world reads through
+     *  it — with HUD blur off (the default) that show-through plus the rim and
+     *  shadow from drawGlassPanel is what sells the material. */
+    private static final int GLASS_FILL = 0xC414171D;
+    /** HUD panels float just above the world, so a tighter shadow than the
+     *  in-GUI raised tier. */
+    private static final int HUD_SHADOW = 0x4D;
     public static TickSetting showLogo;
     public static TickSetting showWordmark;
     public static TickSetting showKills;
@@ -302,7 +307,8 @@ public class Statistics extends Module {
             mc.entityRenderer.setupOverlayRendering();
         }
 
-        RenderUtils.drawRoundedRectAA(left, top, right, bottom, boxH / 2.0F, 0xD814171D);
+        RenderUtils.drawGlassPanel(left, top, right, bottom, boxH / 2.0F, GLASS_FILL,
+                HUD.dropShadow == null || HUD.dropShadow.isToggled() ? HUD_SHADOW : 0);
 
         float textY = top + (boxH - getInlineHeight(true)) / 2.0F;
         drawInlineText(text, left + 9, textY, accentRGB, true);
@@ -333,7 +339,8 @@ public class Statistics extends Module {
         handleDragging(x, y, x + w, y + h);
 
         int accentRGB = GuiModule.getThemeColor(0) & 0x00FFFFFF;
-        RenderUtils.drawRoundedRectAA(x, y, x + w, y + h, h / 2.0F, 0xD814171D);
+        RenderUtils.drawGlassPanel(x, y, x + w, y + h, h / 2.0F, GLASS_FILL,
+                HUD.dropShadow == null || HUD.dropShadow.isToggled() ? HUD_SHADOW : 0);
         float textY = y + (h - getInlineHeight(false)) / 2.0F;
         drawInlineText(text, x + 7, textY, accentRGB, false);
     }
@@ -609,7 +616,11 @@ public class Statistics extends Module {
             mc.entityRenderer.setupOverlayRendering();
         }
 
-        RenderUtils.drawRoundedRectAA(boxL, boxT, boxR, boxB, corner, 0xD814171D);
+        RenderUtils.drawGlassPanel(boxL, boxT, boxR, boxB, corner, GLASS_FILL,
+                HUD.dropShadow == null || HUD.dropShadow.isToggled() ? HUD_SHADOW : 0);
+        // Theme hairline along the top rim, same idiom as CustomHotbar.
+        RenderUtils.drawRoundedRectAA(boxL + corner, boxT, boxR - corner, boxT + 1.0F,
+                0.5F, 0x50000000 | accentRGB);
 
         boolean inChat = mc.currentScreen instanceof GuiChat;
         int mx = -1, my = -1;
@@ -647,7 +658,7 @@ public class Statistics extends Module {
         for (int i = 1; i < chips.size(); i++) {
             int dx0 = chipStartX[i] - chipGap - 1;
             int dy0 = chipMidY - dividerH / 2;
-            Gui.drawRect(dx0, dy0, dx0 + 1, dy0 + dividerH, 0x40FFFFFF);
+            RenderUtils.drawRoundedRectAA(dx0, dy0, dx0 + 1, dy0 + dividerH, 0.5F, 0x40FFFFFF);
         }
 
         for (int i = 0; i < chips.size(); i++) {
@@ -813,6 +824,23 @@ public class Statistics extends Module {
 
     private void drawChipIcon(Chip.Type type, int x, int y, int w, int h,
                                int color, int accentRGB) {
+        // Phosphor glyphs where one exists — vector, tinted by `color`, and
+        // consistent with the click GUI. The PNG path stays for the client
+        // logo, which is artwork rather than an icon.
+        String glyph = null;
+        switch (type) {
+            case SERVER:       glyph = Icons.SERVER; break;
+            case PING:         glyph = Icons.PING;   break;
+            case FPS:          glyph = Icons.FPS;    break;
+            case SESSION_TIME:
+            case IRL_TIME:     glyph = Icons.CLOCK;  break;
+            default: break;
+        }
+        if (glyph != null && Icons.available()) {
+            Icons.draw(glyph, x + w / 2.0F, y + h / 2.0F, Math.max(w, h), color);
+            return;
+        }
+
         switch (type) {
             case LOGO:
                 if (crow.client.main.Crow.mResourceLocation != null) {
@@ -835,9 +863,9 @@ public class Statistics extends Module {
             case IRL_DAY: {
 
                 RenderUtils.drawRoundedRectAA(x, y + 2, x + w, y + h, 1.5F, color);
-                Gui.drawRect(x + 2,     y, x + 4,     y + 3, color);
-                Gui.drawRect(x + w - 4, y, x + w - 2, y + 3, color);
-                Gui.drawRect(x + 1,     y + 4, x + w - 1, y + 5, 0xCC0E0F12);
+                RenderUtils.drawRoundedRectAA(x + 2,     y, x + 4,     y + 3, 1.0F, color);
+                RenderUtils.drawRoundedRectAA(x + w - 4, y, x + w - 2, y + 3, 1.0F, color);
+                RenderUtils.drawRoundedRectAA(x + 1,     y + 4, x + w - 1, y + 5, 0.5F, 0xCC0E0F12);
                 break;
             }
             default: break;

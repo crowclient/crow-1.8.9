@@ -393,7 +393,8 @@ public class BedDefense extends Module {
         GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
         GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
 
-        RenderUtils.drawRoundedRectAA(0, 0, panelW, panelH, cornerR, 0xCC111217);
+        RenderUtils.drawGlassPanel(0, 0, panelW, panelH, cornerR, 0xBE0E1014,
+                HUD.dropShadow == null || HUD.dropShadow.isToggled() ? RenderUtils.GLASS_SHADOW_CHROME : 0);
 
         float yOff = pad;
 

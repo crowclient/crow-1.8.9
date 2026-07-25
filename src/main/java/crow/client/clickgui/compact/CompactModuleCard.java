@@ -148,19 +148,21 @@ public class CompactModuleCard {
         int totalHeight = getTotalHeight();
         int drawY = y;
         int alpha = Math.max(0, Math.min(255, (int) (255 * revealAnimation)));
-        int cardColor = blendColor(palette.card, palette.hoverCard, hoverAnimation * 0.55F);
+        // Full hover lerp: card and hoverCard are genuinely different colors
+        // now, so the old 0.55 damping just made hover invisible.
+        int cardColor = blendColor(palette.card, palette.hoverCard, hoverAnimation);
         if (configCard) {
             cardColor = blendColor(cardColor, palette.sidebarSelected, 0.18F);
         }
 
+        // Raised elevation. The card lifts as you hover or expand it, so the
+        // shadow tracks that rather than being a constant. Replaces the old
+        // offset black rect, which was a hard-edged copy rather than a shadow.
         float shadowIntensity = Math.max(hoverAnimation * 0.6F, expandAnimation * 0.8F);
-        if (shadowIntensity > 0.02F && alpha > 30) {
-            int shadowAlpha = (int) (12 * shadowIntensity * (alpha / 255.0F));
-            RenderUtils.drawRoundedRectAA(x + 2, drawY + 3, x + w + 2, drawY + totalHeight + 3,
-                    CARD_RADIUS + 2, (shadowAlpha << 24));
-        }
+        int shadowAlpha = (int) (RenderUtils.GLASS_SHADOW_RAISED * shadowIntensity * (alpha / 255.0F));
 
-        RenderUtils.drawRoundedRectAA(x, drawY, x + w, drawY + totalHeight, CARD_RADIUS, withAlpha(cardColor, alpha));
+        RenderUtils.drawGlassPanel(x, drawY, x + w, drawY + totalHeight, CARD_RADIUS,
+                withAlpha(cardColor, alpha), shadowAlpha);
 
         if (hoverAnimation > 0.05F) {
             int outlineAlpha = (int) (22 * hoverAnimation * (alpha / 255.0F));

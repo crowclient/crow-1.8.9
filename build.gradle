@@ -26,7 +26,7 @@ apply plugin: 'net.minecraftforge.gradle.forge'
 apply plugin: 'org.spongepowered.mixin'
 apply plugin: 'java'
 
-version = "b1.2.9"
+version = "b1.3"
 group = "crow"
 archivesBaseName = "Crow"
 
@@ -74,11 +74,6 @@ configurations {
 
 dependencies {
     implementation group: 'commons-io', name: 'commons-io', version: '2.11.0'
-    embed 'org.ow2.asm:asm:6.2.1'
-    embed 'org.ow2.asm:asm-tree:6.2.1'
-    embed 'org.ow2.asm:asm-commons:6.2.1'
-    embed 'org.ow2.asm:asm-util:6.2.1'
-    embed 'org.ow2.asm:asm-analysis:6.2.1'
     // discord-rpc.jar embed removed — no source references it, the
     // shaded jar bundles two .dll files (win-x86/win-x64 discord-rpc.dll
     // plus JNA's jnidispatch.dll natives) which legitimate AV scanners
@@ -99,7 +94,6 @@ dependencies {
         exclude module: 'asm-commons'
         exclude module: 'slf4j-api'
     }
-    implementation 'org.jetbrains:annotations:22.0.0'
 }
 
 processResources {
@@ -127,7 +121,7 @@ plugins {
 
 /* -Dfml.coreMods.load=crow.sToNkS.tweaker.FMLLoadingPlugin*/
 jar {
-    archiveName = "Crow-b1.2.9.jar"
+    archiveName = "Crow-b1.3.jar"
     from(configurations.embed.collect {
         it.isDirectory() ? it : zipTree(it)
     }) {

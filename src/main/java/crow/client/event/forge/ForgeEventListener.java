@@ -27,7 +27,6 @@ public class ForgeEventListener {
     public void onTick(TickEvent.ClientTickEvent e) {
         try {
             if (e.phase == TickEvent.Phase.END) {
-                Crow.eventBus.post(new crow.client.event.impl.TickEvent());
                 if (Utils.Player.isPlayerInGame())
                     for (Module module : Crow.moduleManager.getModules())
                         if (Minecraft.getMinecraft().currentScreen instanceof ClickGui)

@@ -7,6 +7,9 @@ import crow.client.module.setting.impl.DescriptionSetting;
 import crow.client.module.setting.impl.SliderSetting;
 import crow.client.module.setting.impl.TickSetting;
 import net.minecraft.entity.Entity;
+import net.minecraft.util.AxisAlignedBB;
+import net.minecraft.util.MathHelper;
+import net.minecraft.util.Vec3;
 
 public class KeepSprint extends Module {
     public static DescriptionSetting a, a2;
@@ -23,10 +26,12 @@ public class KeepSprint extends Module {
     }
 
     public static void sl(Entity en) {
+        if (en == null || mc == null || mc.thePlayer == null) return;
+
         double dist;
-        Module reach = Crow.moduleManager.getModuleByClazz(Reach.class);
+        Module reach = Crow.moduleManager == null ? null : Crow.moduleManager.getModuleByClazz(Reach.class);
         if (c.isToggled() && reach != null && reach.isEnabled() && !mc.thePlayer.capabilities.isCreativeMode) {
-            dist = mc.objectMouseOver.hitVec.distanceTo(mc.getRenderViewEntity().getPositionEyes(1.0F));
+            dist = distanceToBoundingBox(en);
             double val;
             if (dist > 3.0D) {
                 val = (100.0D - (double) ((float) b.getInput())) / 100.0D;
@@ -45,5 +50,21 @@ public class KeepSprint extends Module {
             mc.thePlayer.setSprinting(false);
         }
 
+    }
+
+    private static double distanceToBoundingBox(Entity target) {
+        Vec3 eyes = mc.thePlayer.getPositionEyes(1.0F);
+        AxisAlignedBB box = target.getEntityBoundingBox();
+        if (box == null) {
+            return mc.thePlayer.getDistanceToEntity(target);
+        }
+
+        double closestX = MathHelper.clamp_double(eyes.xCoord, box.minX, box.maxX);
+        double closestY = MathHelper.clamp_double(eyes.yCoord, box.minY, box.maxY);
+        double closestZ = MathHelper.clamp_double(eyes.zCoord, box.minZ, box.maxZ);
+        double dx = eyes.xCoord - closestX;
+        double dy = eyes.yCoord - closestY;
+        double dz = eyes.zCoord - closestZ;
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
     }
 }

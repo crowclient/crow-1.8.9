@@ -148,10 +148,9 @@ public class CompactCombo {
         // Dropdown body — clearly distinct from the header pill via a darker
         // tint so the user sees where options start.
         int bodyColor = CompactModuleCard.blendColor(palette.background, palette.card, 0.55F);
-        RenderUtils.drawRoundedRectAA(dropX, dropY, dropX + dropW, dropY + drawDropH + DROPDOWN_PAD * 2,
-                CORNER, bodyColor);
-        RenderUtils.drawRoundedOutline(dropX, dropY, dropX + dropW, dropY + drawDropH + DROPDOWN_PAD * 2,
-                CORNER, 1.0F, (Math.max(40, (int) (90 * expandAnimation)) << 24) | 0xFFFFFF);
+        RenderUtils.drawGlassPanel(dropX, dropY, dropX + dropW, dropY + drawDropH + DROPDOWN_PAD * 2,
+                CORNER, bodyColor,
+                (int) (RenderUtils.GLASS_SHADOW_RAISED * expandAnimation));
 
         if (optionHovers == null || optionHovers.length != options.length) {
             optionHovers = new Animation[options.length];
@@ -254,10 +253,7 @@ public class CompactCombo {
         }
 
         int size = 9;
-        net.minecraft.client.Minecraft.getMinecraft().getTextureManager().bindTexture(DROPDOWN_ARROW);
-
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+        crow.client.utils.RenderUtils.bindSmoothIcon(DROPDOWN_ARROW);
         GlStateManager.pushMatrix();
         GlStateManager.translate(x + size / 2.0F, y + size / 2.0F, 0.0F);
         GlStateManager.rotate(180.0F * animation, 0.0F, 0.0F, 1.0F);

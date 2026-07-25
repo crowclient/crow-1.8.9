@@ -3,7 +3,6 @@ package crow.client.module.modules.combat;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -15,13 +14,11 @@ import crow.client.event.impl.ForgeEvent;
 import crow.client.main.Crow;
 import crow.client.module.Module;
 import crow.client.module.modules.client.GuiModule;
-import crow.client.module.setting.Setting;
 import crow.client.module.setting.impl.ComboSetting;
 import crow.client.module.setting.impl.DescriptionSetting;
 import crow.client.module.setting.impl.SliderSetting;
 import crow.client.module.setting.impl.TickSetting;
 import crow.client.utils.Utils;
-import net.minecraft.client.network.NetworkPlayerInfo;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.client.renderer.RenderGlobal;
 import net.minecraft.client.renderer.Tessellator;
@@ -35,97 +32,96 @@ import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
 
 /**
- * Backtrack — lets you hit players at their previous positions by
- * exploiting the server's lag compensation window.
+ * Backtrack — hit players at their previous positions inside the
+ * server's natural lag-compensation window.
+ *
+ * <p>This module never modifies outgoing packets. Holding C03 against
+ * modern anti-cheats (Grim, Vulcan) flags BadPacketsT because those
+ * systems run their own physics simulation on the server and notice
+ * the divergence the moment we delay anything. Instead we just
+ * surface the entity's recent history visually, expand the mouseover
+ * raycast, and let the server's own lag-comp resolve the hit at the
+ * matching past position.
  *
  * <h2>Modes</h2>
  * <ul>
- *   <li><b>Manual</b> — Records each nearby entity's past N tick
- *       positions and renders translucent "shadows" of them. The
- *       outgoing connection is NOT modified. The user aims at any
- *       shadow; the server-side lag-comp window (typically ~500 ms
- *       on Hypixel-class servers) accepts the hit against where the
- *       entity was at that past tick.</li>
- *   <li><b>Lag Based</b> — Delays outgoing player position packets
- *       (C03/C04/C05/C06) by {@code Latency} ms when an attack is
- *       imminent, then releases them. The server's view of the
- *       player's position falls behind by {@code Latency} ms, so the
- *       lag-comp window effectively shifts further into the past —
- *       letting the user hit positions older than the natural
- *       lag-comp window. Also renders the opponent's server-side
- *       position (where the server thinks they were at the moment
- *       the server is processing the player's attack).</li>
+ *   <li><b>Manual</b> — renders N translucent shadows of the entity's
+ *       past positions and lets you click any of them. Aim modules
+ *       target the shadow at the configured "Aim depth" so silent aim
+ *       lines up with what's drawn.</li>
+ *   <li><b>LagBased</b> — renders the entity's <i>model</i> at the
+ *       past position the lag-comp window will accept a hit at (the
+ *       "hittable" position) and a wireframe outline at the entity's
+ *       <i>current</i> position (where the server sees them right now).
+ *       Aim modules target the hittable position. Functionally the
+ *       same lag-comp hit, but with one cleaner shadow plus an explicit
+ *       "they're really here" indicator.</li>
  * </ul>
- *
- * <p>The static {@link #unionWithPredicted(Entity, AxisAlignedBB, float)}
- * helper is consumed by {@code MixinEntityRenderer} to expand the
- * mouse-over hit box: clicking on a rendered shadow registers as
- * clicking the entity, so the vanilla click → attack flow lands.
  */
 public class Backtrack extends Module {
 
     public enum Mode { Manual, LagBased }
     public enum ShadowColor { Theme, Red, Green, Blue, Yellow, Purple, White }
 
-    public static ComboSetting modeSetting;
-    public static TickSetting renderTicks;
-    public static SliderSetting ticksHistory;
-    public static TickSetting renderServerPos;
-    public static SliderSetting latency;
-    public static ComboSetting colorSetting;
+    public static ComboSetting  modeSetting;
+    public static SliderSetting renderTicks;
+    public static SliderSetting aimDepth;
+    public static SliderSetting maxAgeMs;
+    public static TickSetting   expandHitbox;
+    public static TickSetting   renderShadows;
+    public static SliderSetting lagMs;
+    public static TickSetting   renderServerPos;
+    public static ComboSetting  colorSetting;
     public static SliderSetting maxDistance;
-    public static TickSetting playersOnly;
-    public static TickSetting weaponOnly;
+    public static TickSetting   playersOnly;
+    public static TickSetting   weaponOnly;
 
-    /** Per-entity ring buffer of historical tick snapshots. */
+    /** Per-entity ring buffer of historical tick snapshots, newest-first. */
     private final Map<Integer, Deque<TickSnapshot>> history = new ConcurrentHashMap<>();
 
-    /** Our own position history — used to render server-side position in Lag-Based mode. */
-    private final Deque<TickSnapshot> ownHistory = new ArrayDeque<>();
-
-    private static final int OWN_HISTORY_CAP = 60;
-    private static final int MAX_HISTORY_PER_ENTITY = 25;
+    private static final int MAX_HISTORY_PER_ENTITY = 20;
 
     public Backtrack() {
         super("Backtrack", ModuleCategory.combat);
         this.registerSetting(new DescriptionSetting(
-                "Hit players at their previous positions via server-side lag compensation."));
+                "Aim at past positions within the server's lag-comp window. No packet manipulation."));
         this.registerSetting(modeSetting    = new ComboSetting<>("Mode", Mode.Manual));
-        this.registerSetting(renderTicks    = new TickSetting("Render Previous Ticks", true));
-        this.registerSetting(ticksHistory   = new SliderSetting("Ticks", 8, 1, 20, 1));
-        this.registerSetting(renderServerPos = new TickSetting("Render Server Pos", true));
-        this.registerSetting(latency        = new SliderSetting("Latency", 150, 50, 500, 10));
-        this.registerSetting(colorSetting   = new ComboSetting<>("Color", ShadowColor.Theme));
-        this.registerSetting(maxDistance    = new SliderSetting("Max dist", 6.0D, 1.0D, 10.0D, 0.1D));
-        this.registerSetting(playersOnly    = new TickSetting("Players only", true));
-        this.registerSetting(weaponOnly     = new TickSetting("Weapon only", false));
 
-        // Visibility — Manual hides Lag-Based knobs and vice versa.
-        renderTicks.visibleWhen(() -> getMode() == Mode.Manual);
-        ticksHistory.visibleWhen(() -> getMode() == Mode.Manual);
-        renderServerPos.visibleWhen(() -> getMode() == Mode.LagBased);
-        latency.visibleWhen(() -> getMode() == Mode.LagBased);
+        // Manual-mode knobs ------------------------------------------------
+        this.registerSetting(renderShadows  = new TickSetting("Render shadows", true));
+        this.registerSetting(renderTicks    = new SliderSetting("Render ticks", 3, 1, 6, 1));
+        this.registerSetting(aimDepth       = new SliderSetting("Aim depth",    2, 1, 6, 1));
+        this.registerSetting(maxAgeMs       = new SliderSetting("Max age (ms)", 180, 50, 350, 10));
+        this.registerSetting(expandHitbox   = new TickSetting("Click any shadow", true));
+
+        // LagBased-mode knobs ----------------------------------------------
+        this.registerSetting(lagMs           = new SliderSetting("Lag window (ms)", 150, 50, 300, 10));
+        this.registerSetting(renderServerPos = new TickSetting("Server-pos box", true));
+
+        // Shared knobs -----------------------------------------------------
+        this.registerSetting(colorSetting   = new ComboSetting<>("Color", ShadowColor.Theme));
+        this.registerSetting(maxDistance    = new SliderSetting("Max dist",  5.0D, 1.0D, 6.0D, 0.1D));
+        this.registerSetting(playersOnly    = new TickSetting("Players only", true));
+        this.registerSetting(weaponOnly     = new TickSetting("Weapon only",  false));
+
+        // Visibility — Manual hides LagBased knobs and vice versa.
+        renderShadows.visibleWhen(   () -> getMode() == Mode.Manual);
+        renderTicks.visibleWhen(     () -> getMode() == Mode.Manual);
+        aimDepth.visibleWhen(        () -> getMode() == Mode.Manual);
+        maxAgeMs.visibleWhen(        () -> getMode() == Mode.Manual);
+        expandHitbox.visibleWhen(    () -> getMode() == Mode.Manual);
+        lagMs.visibleWhen(           () -> getMode() == Mode.LagBased);
+        renderServerPos.visibleWhen( () -> getMode() == Mode.LagBased);
     }
 
     @Override
     public void onEnable() {
         history.clear();
-        ownHistory.clear();
     }
 
     @Override
     public void onDisable() {
-        flushAllOutgoing();
         history.clear();
-        ownHistory.clear();
-    }
-
-    @Override
-    public void guiButtonToggled(Setting s) {
-        // Force visibility refresh when Mode changes.
-        if (s == modeSetting && getMode() == Mode.Manual) {
-            flushAllOutgoing();
-        }
     }
 
     @SuppressWarnings("unchecked")
@@ -135,15 +131,14 @@ public class Backtrack extends Module {
 
     @Override
     public String getHudSuffix() {
-        Mode m = getMode();
-        if (m == Mode.LagBased) {
-            return ((int) latency.getInput()) + "ms";
+        if (getMode() == Mode.LagBased) {
+            return ((int) lagMs.getInput()) + "ms";
         }
-        return ((int) ticksHistory.getInput()) + "t";
+        return ((int) renderTicks.getInput()) + "t";
     }
 
     /* ====================================================================== */
-    /* Tick — record snapshots, release delayed outgoing packets              */
+    /* Tick — record snapshots                                                */
     /* ====================================================================== */
 
     @Subscribe
@@ -153,17 +148,13 @@ public class Backtrack extends Module {
         if (cte.phase != TickEvent.Phase.END) return;
         if (!Utils.Player.isPlayerInGame() || mc.theWorld == null) {
             history.clear();
-            ownHistory.clear();
-            flushAllOutgoing();
             return;
         }
 
         long now = System.currentTimeMillis();
-        int cap = (int) ticksHistory.getInput();
         double range = maxDistance.getInput();
         double rangeSq = (range + 1.0) * (range + 1.0);
 
-        // Record snapshots of nearby entities.
         for (Entity ent : new ArrayList<>(mc.theWorld.loadedEntityList)) {
             if (ent == null || ent == mc.thePlayer) continue;
             if (!(ent instanceof EntityLivingBase) || !((EntityLivingBase) ent).isEntityAlive()) continue;
@@ -176,62 +167,16 @@ public class Backtrack extends Module {
                     id -> new ArrayDeque<>());
             buf.addFirst(new TickSnapshot(ent.posX, ent.posY, ent.posZ,
                     ent.rotationYaw, ent.rotationPitch, now));
-            while (buf.size() > Math.max(cap, MAX_HISTORY_PER_ENTITY)) {
+            while (buf.size() > MAX_HISTORY_PER_ENTITY) {
                 buf.removeLast();
             }
         }
-
-        // Track our own position history (drives the server-pos shadow).
-        if (mc.thePlayer != null) {
-            ownHistory.addFirst(new TickSnapshot(
-                    mc.thePlayer.posX, mc.thePlayer.posY, mc.thePlayer.posZ,
-                    mc.thePlayer.rotationYaw, mc.thePlayer.rotationPitch, now));
-            while (ownHistory.size() > OWN_HISTORY_CAP) ownHistory.removeLast();
-        }
-
     }
 
     /* ====================================================================== */
-    /* Lag-Based mode is now visual + aim only — no actual connection mod.    */
-    /* Holding outgoing C03 packets triggered Grim's BadPacketsT check        */
-    /* (position-vs-physics mismatch) badly enough that the "modify the      */
-    /* connection" approach wasn't viable. Instead, Lag-Based mode renders   */
-    /* a server-pos shadow at `now − latency` and points AimAssist /         */
-    /* SilentAura at it; the server's own lag-comp window (~ping/2)          */
-    /* accepts the hit naturally as long as `latency` stays inside that     */
-    /* window. The user-facing behavior is the same — "hit them where they  */
-    /* were `latency` ms ago" — without packet manipulation.                  */
+    /* Aim / hitbox surface                                                   */
     /* ====================================================================== */
 
-    private void flushAllOutgoing() {
-        // No-op — Lag-Based mode no longer holds outgoing packets.
-    }
-
-    /* ====================================================================== */
-    /* Hit-box union — consumed by MixinEntityRenderer                        */
-    /* ====================================================================== */
-
-    /**
-     * Expand an entity's hitbox to include all recorded backtrack
-     * positions. This is what makes "click on a shadow → attack the
-     * entity" work — the mouseover raycast sees the union and resolves
-     * to the entity, then vanilla clickMouse fires C02 with the entity
-     * ID. Server-side lag-comp converts that into a hit at the past
-     * position the shadow represents.
-     */
-    /**
-     * Return the (x, y, z) position aim modules should target on the
-     * given entity, accounting for active backtrack. Returns {@code null}
-     * if backtrack isn't applicable to this entity — callers fall back
-     * to {@code entity.posX/Y/Z}.
-     *
-     * <p>Manual mode returns the OLDEST recorded snapshot (maximum lag-
-     * comp benefit). Lag-Based mode returns the snapshot closest to
-     * {@code now − latency} (the exact server-side position the lag-comp
-     * window will hit). With this in place, AimAssist and SilentAura
-     * automatically point their rotation at the same shadow the renderer
-     * draws — so what the user sees IS where the hit lands.
-     */
     public static double[] getAimTarget(Entity entity) {
         if (entity == null || entity == mc.thePlayer) return null;
         if (!(entity instanceof EntityLivingBase) || !((EntityLivingBase) entity).isEntityAlive()) return null;
@@ -248,20 +193,18 @@ public class Backtrack extends Module {
         Deque<TickSnapshot> buf = inst.history.get(entity.getEntityId());
         if (buf == null || buf.isEmpty()) return null;
 
-        Mode mode = getMode();
         TickSnapshot s;
-        if (mode == Mode.LagBased) {
-            s = pickServerPosSnapshot(buf);
+        if (getMode() == Mode.LagBased) {
+            s = pickHittableSnapshot(buf);
         } else {
-            // Manual: oldest available position within the active window.
-            // peekLast() is the most-backtracked snapshot we recorded.
-            int cap = (int) ticksHistory.getInput();
-            s = null;
-            int n = 0;
-            for (TickSnapshot snap : buf) {
-                if (n++ >= cap) break;
-                s = snap; // overwrite — last assignment is oldest within cap
-            }
+            // Only aim as far back as the click surface actually reaches.
+            // unionWithPredicted expands the hitbox over `renderTicks`
+            // snapshots and only when "Click any shadow" is on; aiming past
+            // that points the rotation at a shadow the mouseover raycast
+            // never covers, so the click resolves to nothing at all.
+            if (!expandHitbox.isToggled()) return null;
+            int depth = Math.min((int) aimDepth.getInput(), (int) renderTicks.getInput());
+            s = pickManualSnapshot(buf, depth, (long) maxAgeMs.getInput());
         }
         if (s == null) return null;
         return new double[] { s.x, s.y, s.z };
@@ -280,40 +223,58 @@ public class Backtrack extends Module {
         double range = maxDistance.getInput();
         if (mc.thePlayer.getDistanceSqToEntity(entity) > (range + 1.0) * (range + 1.0)) return current;
 
-        AxisAlignedBB out = current;
         Deque<TickSnapshot> buf = inst.history.get(entity.getEntityId());
         if (buf == null || buf.isEmpty()) return current;
 
-        // For Manual mode, every shadow is a valid hit target. For
-        // Lag-Based mode, only the oldest tracked position represents
-        // the server-pos that the lag-comp window will accept.
-        Mode mode = getMode();
         float halfW = entity.width / 2.0F;
-        if (mode == Mode.Manual) {
-            int cap = (int) ticksHistory.getInput();
-            int n = 0;
-            for (TickSnapshot s : buf) {
-                if (n++ >= cap) break;
-                out = out.union(new AxisAlignedBB(
-                        s.x - halfW, s.y, s.z - halfW,
-                        s.x + halfW, s.y + entity.height, s.z + halfW));
-            }
-        } else {
-            // Lag-Based: union with the snapshot closest to (now - latency).
-            TickSnapshot best = pickServerPosSnapshot(buf);
-            if (best != null) {
-                out = out.union(new AxisAlignedBB(
-                        best.x - halfW, best.y, best.z - halfW,
-                        best.x + halfW, best.y + entity.height, best.z + halfW));
-            }
+
+        if (getMode() == Mode.LagBased) {
+            // LagBased unions the hittable (past) position so a click
+            // there counts as a click on the entity. The server-pos box
+            // is purely visual — never part of the hit surface.
+            TickSnapshot s = pickHittableSnapshot(buf);
+            if (s == null) return current;
+            return current.union(new AxisAlignedBB(
+                    s.x - halfW, s.y, s.z - halfW,
+                    s.x + halfW, s.y + entity.height, s.z + halfW));
+        }
+
+        // Manual mode — gated by the explicit toggle.
+        if (!expandHitbox.isToggled()) return current;
+        long now = System.currentTimeMillis();
+        long maxAge = (long) maxAgeMs.getInput();
+        int cap = (int) renderTicks.getInput();
+
+        AxisAlignedBB out = current;
+        int n = 0;
+        for (TickSnapshot s : buf) {
+            if (n++ >= cap) break;
+            if (now - s.timestamp > maxAge) break;
+            out = out.union(new AxisAlignedBB(
+                    s.x - halfW, s.y, s.z - halfW,
+                    s.x + halfW, s.y + entity.height, s.z + halfW));
         }
         return out;
     }
 
-    private static TickSnapshot pickServerPosSnapshot(Deque<TickSnapshot> buf) {
+    private static TickSnapshot pickManualSnapshot(Deque<TickSnapshot> buf, int depth, long maxAge) {
+        long now = System.currentTimeMillis();
+        int n = 0;
+        TickSnapshot best = null;
+        for (TickSnapshot s : buf) {
+            if (now - s.timestamp > maxAge) break;
+            n++;
+            best = s;
+            if (n >= depth) break;
+        }
+        return best;
+    }
+
+    /** Snapshot closest to (now − lagMs) — where lag-comp will accept the hit. */
+    private static TickSnapshot pickHittableSnapshot(Deque<TickSnapshot> buf) {
         if (buf == null || buf.isEmpty()) return null;
         long now = System.currentTimeMillis();
-        long target = now - (long) latency.getInput();
+        long target = now - (long) lagMs.getInput();
         TickSnapshot best = null;
         long bestDiff = Long.MAX_VALUE;
         for (TickSnapshot s : buf) {
@@ -327,7 +288,7 @@ public class Backtrack extends Module {
     }
 
     /* ====================================================================== */
-    /* Rendering — translucent player-shaped shadows at past positions        */
+    /* Rendering                                                              */
     /* ====================================================================== */
 
     @Subscribe
@@ -336,9 +297,13 @@ public class Backtrack extends Module {
         if (mc.theWorld == null || mc.thePlayer == null) return;
 
         Mode mode = getMode();
-        boolean drawShadows = mode == Mode.Manual && renderTicks.isToggled();
-        boolean drawServer  = mode == Mode.LagBased && renderServerPos.isToggled();
-        if (!drawShadows && !drawServer) return;
+        boolean drawManual = mode == Mode.Manual && renderShadows.isToggled();
+        boolean drawLag    = mode == Mode.LagBased;
+        if (!drawManual && !drawLag) return;
+        // Match the aim/hitbox gate — getAimTarget and unionWithPredicted both
+        // bail on weaponOnly, so drawing here anyway would show shadows that
+        // can't be clicked or aimed at.
+        if (weaponOnly.isToggled() && !Utils.Player.isPlayerHoldingWeapon()) return;
 
         RenderWorldLastEvent rwle = (RenderWorldLastEvent) fe.getEvent();
         float partialTicks = rwle.partialTicks;
@@ -352,7 +317,10 @@ public class Backtrack extends Module {
         float cg = ((color >>  8) & 0xFF) / 255.0F;
         float cb = ( color        & 0xFF) / 255.0F;
 
-        int cap = (int) ticksHistory.getInput();
+        long now = System.currentTimeMillis();
+        long maxAge = (long) maxAgeMs.getInput();
+        int cap = (int) renderTicks.getInput();
+
         for (Entity entity : new ArrayList<>(mc.theWorld.loadedEntityList)) {
             if (entity == null || entity == mc.thePlayer) continue;
             if (!(entity instanceof EntityLivingBase) || !((EntityLivingBase) entity).isEntityAlive()) continue;
@@ -361,27 +329,35 @@ public class Backtrack extends Module {
             Deque<TickSnapshot> buf = history.get(entity.getEntityId());
             if (buf == null || buf.isEmpty()) continue;
 
-            if (drawShadows) {
+            if (drawManual) {
                 int n = 0;
                 int total = Math.min(cap, buf.size());
                 for (TickSnapshot s : buf) {
                     if (n >= total) break;
-                    // Older = more transparent. The oldest shadow (the
-                    // one we aim at) keeps a minimum visible alpha so it
-                    // stays clearly clickable even in long tails.
+                    if (now - s.timestamp > maxAge) break;
                     float fade = 1.0F - (n / (float) Math.max(1, total));
-                    float overallAlpha = Math.max(0.25F, 0.85F * fade);
+                    float overallAlpha = Math.max(0.30F, 0.85F * fade);
                     drawShadowFigure(entity, s, partialTicks,
-                            viewX, viewY, viewZ, cr, cg, cb, overallAlpha);
+                            viewX, viewY, viewZ, cr, cg, cb, overallAlpha, true);
                     n++;
                 }
             }
 
-            if (drawServer) {
-                TickSnapshot s = pickServerPosSnapshot(buf);
-                if (s != null) {
-                    drawShadowFigure(entity, s, partialTicks,
-                            viewX, viewY, viewZ, cr, cg, cb, 0.92F);
+            if (drawLag) {
+                // Solid model at the hittable (past) position — this is
+                // where lag-comp will register the hit, so this is where
+                // we want the user's cursor pointed.
+                TickSnapshot hittable = pickHittableSnapshot(buf);
+                if (hittable != null) {
+                    drawShadowFigure(entity, hittable, partialTicks,
+                            viewX, viewY, viewZ, cr, cg, cb, 0.92F, true);
+                }
+                // Wireframe-only box at the entity's current (server)
+                // position — visual "they're actually here right now",
+                // not part of the click surface.
+                if (renderServerPos.isToggled()) {
+                    drawCurrentPositionBox(entity, partialTicks,
+                            viewX, viewY, viewZ, cr, cg, cb);
                 }
             }
         }
@@ -391,16 +367,12 @@ public class Backtrack extends Module {
         GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
     }
 
-    /**
-     * Premium per-shadow render: the actual entity rendered at the past
-     * position with a translucent color tint, plus a crisp theme-color
-     * outline box for "you can hit here" affordance. Mirrors Vape v4's
-     * backtrack visual.
-     */
+    /** Per-shadow render — entity rendered at a past pose, plus an
+     *  optional outline / fill box for click-target affordance. */
     private void drawShadowFigure(Entity entity, TickSnapshot s, float partialTicks,
                                   double viewX, double viewY, double viewZ,
-                                  float r, float g, float b, float alpha) {
-        // Save entity state so we can swap it temporarily for the render.
+                                  float r, float g, float b, float alpha,
+                                  boolean drawBox) {
         double origX = entity.posX, origY = entity.posY, origZ = entity.posZ;
         double origPX = entity.prevPosX, origPY = entity.prevPosY, origPZ = entity.prevPosZ;
         double origLX = entity.lastTickPosX, origLY = entity.lastTickPosY, origLZ = entity.lastTickPosZ;
@@ -411,7 +383,6 @@ public class Backtrack extends Module {
         float origPYawHead = entity instanceof EntityLivingBase
                 ? ((EntityLivingBase) entity).prevRotationYawHead : 0F;
 
-        // Swap to snapshot pose for the duration of the render.
         entity.posX = entity.lastTickPosX = entity.prevPosX = s.x;
         entity.posY = entity.lastTickPosY = entity.prevPosY = s.y;
         entity.posZ = entity.lastTickPosZ = entity.prevPosZ = s.z;
@@ -422,16 +393,12 @@ public class Backtrack extends Module {
             ((EntityLivingBase) entity).prevRotationYawHead = s.yaw;
         }
 
-        boolean prevRender = mc.gameSettings.thirdPersonView != 0;
         try {
             GlStateManager.pushMatrix();
             GlStateManager.enableBlend();
             GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
             GlStateManager.color(r, g, b, alpha);
 
-            // Render the entity at the snapshot position with the
-            // colored tint. RenderManager.doRenderEntity handles the
-            // viewer-relative offset internally.
             mc.getRenderManager().doRenderEntity(
                     entity, s.x - viewX, s.y - viewY, s.z - viewZ,
                     s.yaw, partialTicks, false);
@@ -440,10 +407,7 @@ public class Backtrack extends Module {
             GlStateManager.disableBlend();
             GlStateManager.popMatrix();
         } catch (Throwable ignored) {
-            // Some entity renderers throw if state is awkward — never
-            // let a render glitch cascade into a state-corruption crash.
         } finally {
-            // Always restore — even if rendering threw.
             entity.posX = origX; entity.posY = origY; entity.posZ = origZ;
             entity.prevPosX = origPX; entity.prevPosY = origPY; entity.prevPosZ = origPZ;
             entity.lastTickPosX = origLX; entity.lastTickPosY = origLY; entity.lastTickPosZ = origLZ;
@@ -455,8 +419,28 @@ public class Backtrack extends Module {
             }
         }
 
-        // Crisp outline box overlay so the click-target is obvious even
-        // when the entity render is dim or partially occluded.
+        if (drawBox) {
+            drawBoundingBoxAt(entity, s.x, s.y, s.z,
+                    viewX, viewY, viewZ, r, g, b, alpha, true);
+        }
+    }
+
+    /** Wireframe-only outline at the entity's current position — used in
+     *  LagBased mode to show where the server actually sees them. */
+    private void drawCurrentPositionBox(Entity entity, float partialTicks,
+                                        double viewX, double viewY, double viewZ,
+                                        float r, float g, float b) {
+        // Use the interpolated position (what we'd actually see if we
+        // weren't drawing the shadow at the past pose).
+        double ex = entity.lastTickPosX + (entity.posX - entity.lastTickPosX) * partialTicks;
+        double ey = entity.lastTickPosY + (entity.posY - entity.lastTickPosY) * partialTicks;
+        double ez = entity.lastTickPosZ + (entity.posZ - entity.lastTickPosZ) * partialTicks;
+        drawBoundingBoxAt(entity, ex, ey, ez, viewX, viewY, viewZ, r, g, b, 0.9F, false);
+    }
+
+    private void drawBoundingBoxAt(Entity entity, double posX, double posY, double posZ,
+                                   double viewX, double viewY, double viewZ,
+                                   float r, float g, float b, float alpha, boolean filled) {
         GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
         try {
             GL11.glEnable(GL11.GL_BLEND);
@@ -464,19 +448,21 @@ public class Backtrack extends Module {
             GL11.glDisable(GL11.GL_TEXTURE_2D);
             GL11.glDisable(GL11.GL_DEPTH_TEST);
             GL11.glDepthMask(false);
-            GL11.glLineWidth(1.4F);
+            GL11.glLineWidth(1.6F);
 
             float halfW = entity.width / 2.0F;
-            double bx = s.x - viewX;
-            double by = s.y - viewY;
-            double bz = s.z - viewZ;
+            double bx = posX - viewX;
+            double by = posY - viewY;
+            double bz = posZ - viewZ;
             AxisAlignedBB box = new AxisAlignedBB(
                     bx - halfW, by, bz - halfW,
                     bx + halfW, by + entity.height, bz + halfW);
             GlStateManager.color(r, g, b, Math.min(1F, alpha * 1.1F));
             RenderGlobal.drawSelectionBoundingBox(box);
-            GlStateManager.color(r, g, b, alpha * 0.18F);
-            drawFilledBox(box, r, g, b, alpha * 0.18F);
+            if (filled) {
+                GlStateManager.color(r, g, b, alpha * 0.18F);
+                drawFilledBox(box, r, g, b, alpha * 0.18F);
+            }
         } finally {
             GL11.glPopAttrib();
         }
@@ -540,20 +526,6 @@ public class Backtrack extends Module {
             this.yaw = yaw;
             this.pitch = pitch;
             this.timestamp = timestamp;
-        }
-    }
-
-    /** Local-ping accessor kept for HUD use; not used by core logic. */
-    @SuppressWarnings("unused")
-    private int getLocalPing() {
-        if (mc.getNetHandler() == null || mc.thePlayer == null) return 0;
-        try {
-            NetworkPlayerInfo info = mc.getNetHandler().getPlayerInfo(mc.thePlayer.getUniqueID());
-            if (info == null) return 0;
-            int ping = info.getResponseTime();
-            return ping > 0 && ping < 5000 ? ping : 0;
-        } catch (Exception e) {
-            return 0;
         }
     }
 }

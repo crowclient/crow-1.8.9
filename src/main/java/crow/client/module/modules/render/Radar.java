@@ -70,7 +70,8 @@ public class Radar extends Module {
             mc.entityRenderer.setupOverlayRendering();
         }
 
-        RenderUtils.drawRoundedRectAA(x, y, x + panelSize, y + panelSize, corner, 0xD814171D);
+        RenderUtils.drawGlassPanel(x, y, x + panelSize, y + panelSize, corner, 0xC414171D,
+                HUD.dropShadow == null || HUD.dropShadow.isToggled() ? RenderUtils.GLASS_SHADOW_CHROME : 0);
 
         GL11.glPushMatrix();
         GL11.glDisable(GL11.GL_TEXTURE_2D);

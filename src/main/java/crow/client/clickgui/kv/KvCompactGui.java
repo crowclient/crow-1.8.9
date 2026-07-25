@@ -69,10 +69,7 @@ public class KvCompactGui extends GuiScreen {
                 3,
                 Utils.Client.rainbowDraw(1, 0), 0x80000000);
 
-        Minecraft.getMinecraft().getTextureManager().bindTexture(Crow.mResourceLocation);
-
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+        crow.client.utils.RenderUtils.bindSmoothIcon(Crow.mResourceLocation);
         GL11.glColor4f(1f, 1f, 1f, 1f);
         Gui.drawModalRectWithCustomSizedTexture(
                 containerX + 1,

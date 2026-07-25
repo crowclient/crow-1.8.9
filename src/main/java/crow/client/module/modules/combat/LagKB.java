@@ -10,6 +10,7 @@ import crow.client.module.setting.impl.DescriptionSetting;
 import crow.client.module.setting.impl.SliderSetting;
 import crow.client.module.setting.impl.TickSetting;
 import crow.client.utils.Utils;
+import net.minecraft.client.settings.GameSettings;
 import net.minecraft.client.settings.KeyBinding;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.EntityPlayer;
@@ -52,8 +53,6 @@ public class LagKB extends Module {
     private int reverseTicksRemaining = 0;
 
     private double reverseX, reverseZ;
-
-    private boolean wasSprintKeyPressed = false;
 
     public LagKB() {
         super("LagKB", ModuleCategory.combat);
@@ -102,14 +101,16 @@ public class LagKB extends Module {
 
     @Override
     public void onDisable() {
-
         if (sprintResetActive) {
             finishSprintReset();
+        } else {
+            restoreSprintKeyState(false);
         }
         resetState();
     }
 
     private void resetState() {
+        restoreSprintKeyState(false);
         lastAttackedEntity = null;
         lastAttackTime = 0;
         sprintResetActive = false;
@@ -268,7 +269,6 @@ public class LagKB extends Module {
         if (sprintResetActive) return;
         if (!mc.thePlayer.isSprinting()) return;
 
-        wasSprintKeyPressed = mc.gameSettings.keyBindSprint.isKeyDown();
         sprintResetActive = true;
         sprintResetTicks = 0;
 
@@ -287,13 +287,22 @@ public class LagKB extends Module {
     }
 
     private void finishSprintReset() {
-
-        if (wasSprintKeyPressed || mc.thePlayer.moveForward > 0) {
-            mc.thePlayer.setSprinting(true);
-            KeyBinding.setKeyBindState(mc.gameSettings.keyBindSprint.getKeyCode(), true);
-        }
+        restoreSprintKeyState(true);
         sprintResetActive = false;
         sprintResetTicks = 0;
+    }
+
+    private void restoreSprintKeyState(boolean resumePlayerSprint) {
+        if (mc == null || mc.gameSettings == null || mc.gameSettings.keyBindSprint == null) return;
+
+        KeyBinding sprintBinding = mc.gameSettings.keyBindSprint;
+        boolean physicallyDown = GameSettings.isKeyDown(sprintBinding);
+        KeyBinding.setKeyBindState(sprintBinding.getKeyCode(), physicallyDown);
+
+        if (resumePlayerSprint && mc.thePlayer != null
+                && (physicallyDown || mc.thePlayer.moveForward > 0)) {
+            mc.thePlayer.setSprinting(true);
+        }
     }
 
     private void initiateReverseMomentum() {

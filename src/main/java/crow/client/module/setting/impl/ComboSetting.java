@@ -21,11 +21,7 @@ public class ComboSetting<T extends Enum<?>> extends Setting {
         this.currentOption = defaultOption;
         this.defaultOption = defaultOption;
 
-        try {
-            this.options = (T[]) defaultOption.getClass().getMethod("values").invoke(null);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        ensureOptionsInitialized(defaultOption);
     }
 
     @Override
@@ -117,10 +113,7 @@ public class ComboSetting<T extends Enum<?>> extends Setting {
         if (seed == null) {
             return;
         }
-        try {
-            this.options = (T[]) seed.getClass().getMethod("values").invoke(null);
-        } catch (Exception ignored) {
-        }
+        this.options = (T[]) seed.getDeclaringClass().getEnumConstants();
     }
 
 	@Override
