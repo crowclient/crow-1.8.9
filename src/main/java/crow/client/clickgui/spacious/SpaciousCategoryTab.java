@@ -17,9 +17,13 @@ import crow.client.module.modules.client.GuiModule.CompactPalette;
 import crow.client.module.modules.themes.ThemeModule;
 import crow.client.module.setting.impl.ButtonSetting;
 import crow.client.utils.Animation;
+import crow.client.utils.Icons;
 import crow.client.utils.RenderUtils;
 import crow.client.utils.anim.Animatable;
 import crow.client.utils.font.FontUtil;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.GlStateManager;
+import net.minecraft.util.ResourceLocation;
 
 /**
  * One draggable tab in the Spacious GUI — a rounded card with a header
@@ -29,10 +33,8 @@ import crow.client.utils.font.FontUtil;
  * {@code scrollTarget} and clips the card list via a GL scissor so
  * overflow is hidden inside the tab's body.
  *
- * <p>Tabs are also collapsible — by default they start collapsed
- * (header-only). Right-click the header to expand / re-collapse with a
- * smooth height animation. The collapsed state is persisted in the
- * client config so the user's layout survives restarts.
+ * <p>Every column is always open and laid out on a fixed grid by
+ * {@link SpaciousGui}; the header drags it if you want to rearrange.
  *
  * <p>The {@code config} and {@code themes} categories get specialised
  * row renderers — configs show as a flat list of save files (no module
@@ -42,13 +44,28 @@ import crow.client.utils.font.FontUtil;
 public class SpaciousCategoryTab {
 
     public static final int TAB_WIDTH = 186;
-    private static final int HEADER_HEIGHT = 19;
-    private static final int CARD_RADIUS = 7;
-    private static final int LIST_PADDING = 3;
-    private static final int CARD_GAP = 2;
+    private static final int HEADER_HEIGHT = 22;
+    /** Rows run to the panel edge, but the body is masked to this radius via
+     *  {@link SpaciousGui#pushRoundedScissor}, so the content can't square off
+     *  the corners and the radius is free to be generous. */
+    private static final int CARD_RADIUS = 10;
+    /** Rows run the full width of the column and butt straight up against
+     *  each other: no side padding, no gutter. The panel background is only
+     *  ever visible above the first row and below the last, so a row and the
+     *  panel read as one surface rather than a cell floating in a tray. */
+    private static final int LIST_PADDING = 0;
+    private static final int CARD_GAP = 0;
 
     /** Cap on how many module cards are shown at once before scrolling kicks in. */
     public static final int MAX_VISIBLE_CARDS = 8;
+
+    /** Ceiling on body height once settings expand. Without a cap a module with
+     *  a long settings list would grow the tab straight off the bottom of the
+     *  screen; past this the settings scroll instead. */
+    private static final int MAX_EXPANDED_BODY = 320;
+    /** Floor for the expanded cap, so a tab parked near the bottom of the
+     *  screen still opens to something readable rather than a sliver. */
+    private static final int MIN_EXPANDED_BODY = 120;
 
     /* ---- Config-row layout (special-case for ModuleCategory.config). ---- */
     private static final int CONFIG_ROW_HEIGHT = 26;
@@ -58,10 +75,13 @@ public class SpaciousCategoryTab {
 
     private final ModuleCategory category;
     private final SpaciousGui gui;
+    private final ResourceLocation icon;
     private final List<SpaciousModuleCard> moduleCards = new ArrayList<>();
     private final List<ButtonSetting> configActions = new ArrayList<>();
 
-    public boolean visible;
+    /** Every column is always shown — kept only because the config
+     *  round-trip and a few guards still read it. */
+    public boolean visible = true;
     public int x, y;
     public boolean dragging;
     private int dragOffsetX, dragOffsetY;
@@ -73,11 +93,11 @@ public class SpaciousCategoryTab {
     /** True when the tab became visible this frame (used to reset stagger). */
     private boolean prevVisible;
 
-    /* Collapse state — when true, the body is hidden and only the header
-     * is drawn. Right-click on the header toggles. Starts collapsed by
-     * default so a fresh GUI opens minimal and the user expands what they
-     * want. */
-    public boolean collapsed = true;
+    /* Columns are always open. The field and its animation are kept only so
+     * the body-height maths below has a single expanded/collapsed factor to
+     * multiply by; nothing ever sets it true now that the collapse chevron is
+     * gone, and a state you cannot see or undo is worse than no state. */
+    public boolean collapsed = false;
     private final Animation collapseAnim = new Animation(260, Animation::easeOutCubic);
 
     /* Scroll state. */
@@ -97,11 +117,38 @@ public class SpaciousCategoryTab {
     public SpaciousCategoryTab(ModuleCategory category, SpaciousGui gui) {
         this.category = category;
         this.gui = gui;
+        this.icon = resolveCategoryIcon(category);
         rebuildContents();
-        // Seed the collapse animation so the first frame is already
-        // collapsed without a visible drop-in.
-        collapseAnim.set(0F);
+        // Start fully open — columns never collapse.
+        collapseAnim.set(1F);
     }
+
+    /** Resolve the category badge from the dedicated Spacious icon set
+     *  in /assets/crow/spaciousgui/. These are 512×512 sources so the
+     *  size-aware loader pre-scales them to a 32-px variant for clean
+     *  display at the 11/12-px header sizes. Falls back to null when the
+     *  file isn't present, in which case the header simply renders
+     *  without an icon. */
+    private static ResourceLocation resolveCategoryIcon(ModuleCategory category) {
+        if (category == null) return null;
+        String iconName;
+        switch (category) {
+            case combat:   iconName = "Combat";   break;
+            case movement: iconName = "Movement"; break;
+            case world:    iconName = "World";    break;
+            case render:   iconName = "Render";   break;
+            case other:    iconName = "Other";    break;
+            case config:   iconName = "Configs";  break;
+            case client:   iconName = "Settings"; break;
+            case player:   iconName = "Player";   break;
+            case themes:   iconName = "Themes";   break;
+            default:       return null;
+        }
+        return RenderUtils.getResourcePathAtSize(
+                "/assets/crow/spaciousgui/" + iconName + ".png", 14);
+    }
+
+    public ResourceLocation getIcon() { return icon; }
 
     /** Reset the open animation so the next frame replays the zoom-in
      *  from scale 0 → 1. Used by {@link SpaciousGui#initGui()} so visible
@@ -187,7 +234,33 @@ public class SpaciousCategoryTab {
         if (visibleCards == 0) visibleCards = 1;
         int rowsHeight = visibleCards * SpaciousModuleCard.CARD_HEIGHT
                 + Math.max(0, visibleCards - 1) * CARD_GAP;
-        return LIST_PADDING + rowsHeight + LIST_PADDING;
+        int baseline = LIST_PADDING + rowsHeight + LIST_PADDING;
+
+        // Grow the box by however much the expanded settings add on top of the
+        // collapsed list. Without this the baseline stayed fixed at the
+        // collapsed row height, so opening a module crammed its settings into
+        // the scroll region instead of making room for them. Tracks expandAnim
+        // through getContentHeight(), so the tab grows and shrinks smoothly.
+        int expansionExtra = Math.max(0, getContentHeight() - collapsedContentHeight());
+        return Math.min(baseline + expansionExtra, maxExpandedBodyHeight());
+    }
+
+    /** List height with every card collapsed — the reference the expansion
+     *  delta is measured against. */
+    private int collapsedContentHeight() {
+        int total = LIST_PADDING;
+        for (int i = 0; i < moduleCards.size(); i++) {
+            total += SpaciousModuleCard.CARD_HEIGHT;
+            if (i < moduleCards.size() - 1) total += CARD_GAP;
+        }
+        return total + LIST_PADDING;
+    }
+
+    /** How tall the body is allowed to get — bounded by the screen room left
+     *  below this tab so an expanded panel can't spill off the bottom. */
+    private int maxExpandedBodyHeight() {
+        int screenRoom = gui.height - y - HEADER_HEIGHT - 8;
+        return Math.max(MIN_EXPANDED_BODY, Math.min(MAX_EXPANDED_BODY, screenRoom));
     }
 
     /** Current animated body height — scales by collapseAnim 0→1. */
@@ -216,12 +289,12 @@ public class SpaciousCategoryTab {
         // Reset stagger clock the moment the tab transitions from hidden
         // to visible. This drives the intro-animation cascade — cards fade
         // / slide into place with a per-index delay.
-        if (visible && !prevVisible) {
+        if (!prevVisible) {
             openedAtMs = System.currentTimeMillis();
         }
-        prevVisible = visible;
+        prevVisible = true;
 
-        openAnim.setTarget(visible ? 1.0F : 0.0F);
+        openAnim.setTarget(1.0F);
         openAnim.update();
         float open = openAnim.get();
         if (open < 0.01F) return;
@@ -266,64 +339,65 @@ public class SpaciousCategoryTab {
         float collapseT = collapseAnim.get();
         boolean drawBody = collapseT > 0.005F;
 
+        // Each tab is its own floating window, so it carries chrome elevation.
+        int tabBottom = drawBody ? y + totalH : y + HEADER_HEIGHT;
+        int edgeAlpha = (int) (((palette.background >>> 24) & 0xFF) * openAnim.get());
+        RenderUtils.drawGlassChromeShadow(x, y, TAB_WIDTH, tabBottom - y, CARD_RADIUS,
+                openAnim.get());
+
+        // Header is a touch LIGHTER than the body, not darker. A header
+        // painted in `sidebar` over `background` reads as a hole punched in
+        // the top of the tab rather than a title bar; toolbars catch light.
+        int headerFill = CompactModuleCard.blendColor(palette.background, palette.hoverCard, 0.55F);
         if (drawBody) {
             // Full body + header — same outer rect, header overlay on top.
             RenderUtils.drawRoundedRectAA(x, y, x + TAB_WIDTH, y + totalH, CARD_RADIUS, palette.background);
             RenderUtils.drawRoundedRectAA(x, y, x + TAB_WIDTH, bodyTop,
-                    CARD_RADIUS, palette.sidebar,
+                    CARD_RADIUS, headerFill,
                     new boolean[] { true, false, false, true });
+            // Hairline under the header does the separating, so neither
+            // surface has to be muddy to be distinguishable.
+            RenderUtils.drawRoundedRectAA(x + 1, bodyTop - 0.5F, x + TAB_WIDTH - 1, bodyTop + 0.5F,
+                    0.25F, ((int) (0x24 * openAnim.get()) << 24) | 0xFFFFFF);
         } else {
             // Collapsed — header only, fully rounded on all 4 corners.
             RenderUtils.drawRoundedRectAA(x, y, x + TAB_WIDTH, y + HEADER_HEIGHT,
-                    CARD_RADIUS, palette.sidebar);
+                    CARD_RADIUS, headerFill);
         }
+        // Hairline border only — no lit top rim. The rim is a short straight
+        // bar inset from the sides, which at this radius starts outside the
+        // curve of the corner and reads as a stray bar floating over the tab.
+        int borderAlpha = Math.min(255, (int) (0x3A * (edgeAlpha / 255.0F)));
+        RenderUtils.drawRoundedOutline(x, y, x + TAB_WIDTH, tabBottom, CARD_RADIUS,
+                1.0F, (borderAlpha << 24) | 0xFFFFFF);
 
-        // Drag-handle grip — three small rows of two dots.
-        int gripX = x + 8;
-        int gripCenterY = y + HEADER_HEIGHT / 2;
-        int gripAlpha = 0x55;
-        int gripColor = (gripAlpha << 24) | (palette.mutedText & 0x00FFFFFF);
-        for (int row = -1; row <= 1; row++) {
-            int dy = gripCenterY + row * 4;
-            RenderUtils.drawRoundedRectAA(gripX,     dy - 1, gripX + 2, dy + 1, 1F, gripColor);
-            RenderUtils.drawRoundedRectAA(gripX + 4, dy - 1, gripX + 6, dy + 1, 1F, gripColor);
-        }
-        int gripReserve = 14;
+        // Header is icon + name only. No grip dots, no module count, no
+        // collapse chevron — the columns are a fixed grid, so none of that
+        // chrome has a job to do, and stripping it lets the category title
+        // read as a section heading instead of a toolbar.
+        float iconSize = 13.0F;
+        float iconX = x + 9;
+        float headerMid = y + HEADER_HEIGHT / 2.0F;
+        String glyph = Icons.forCategory(category);
+        Icons.drawLeft(glyph, iconX, headerMid, iconSize, palette.titleText);
 
+        float titleX = iconX + Icons.width(glyph, iconSize) + 7;
         String title = titleCase(category.name());
-        FontUtil.semiBold.drawSmoothString(title, x + gripReserve + 8, y + 5, palette.titleText);
-
-        // Count — for config tab, shows # of saved configs.
-        String count;
-        if (category == ModuleCategory.config) {
-            count = String.valueOf(Crow.configManager.getConfigs().size());
-        } else {
-            count = String.valueOf(moduleCards.size());
-        }
-        int countW = (int) FontUtil.semiBold.getStringWidth(count);
-        int countColor = (0xCC << 24) | (palette.titleText & 0x00FFFFFF);
-        // Reserve room for the collapse chevron on the far right.
-        int chevronReserve = 14;
-        FontUtil.semiBold.drawSmoothString(count,
-                x + TAB_WIDTH - countW - 8 - chevronReserve, y + 5, countColor);
-
-        // Collapse chevron — rotates from 0° (collapsed, pointing right)
-        // to 90° (expanded, pointing down) based on collapseAnim.
-        int chevX = x + TAB_WIDTH - 10;
-        int chevY = y + HEADER_HEIGHT / 2;
-        int chevColor = (0xBB << 24) | (palette.titleText & 0x00FFFFFF);
-        RenderUtils.drawChevronRotated(chevX, chevY, 5,
-                -90F + 90F * collapseT, chevColor, 1.1F);
+        FontUtil.semiBold.drawSmoothString(title, titleX,
+                headerMid - FontUtil.semiBold.getHeight() / 2.0F, palette.titleText);
 
         // Only render body contents if we have meaningful body height.
         if (drawBody && bodyHeight > 2) {
             boolean willShowScrollbar = maxScroll > 0;
             int cardX = x + LIST_PADDING;
-            int cardW = TAB_WIDTH - LIST_PADDING * 2 - (willShowScrollbar ? SCROLLBAR_RESERVE : 0);
+            int cardW = TAB_WIDTH - LIST_PADDING * 2;
 
-            // Scissor-clip the body to its animated height so content
-            // doesn't bleed past while the tab is opening/closing.
-            gui.pushScissor(x, bodyTop, TAB_WIDTH, bodyHeight);
+            // Clip the body to its animated height so content doesn't bleed
+            // past while the tab is opening/closing — rounded at the bottom so
+            // the last row follows the panel's corners instead of squaring
+            // them off. The top two corners belong to the header.
+            gui.pushRoundedScissor(x, bodyTop, TAB_WIDTH, bodyHeight, CARD_RADIUS,
+                    new boolean[] { false, true, true, false });
 
             if (category == ModuleCategory.config) {
                 drawConfigBody(mouseX, mouseY, palette, cardX, cardW, bodyTop, bodyBottom, scrollNow);
@@ -331,7 +405,7 @@ public class SpaciousCategoryTab {
                 drawModuleCardBody(mouseX, mouseY, palette, cardX, cardW, bodyTop, bodyBottom, scrollNow);
             }
 
-            gui.popScissor();
+            gui.popRoundedScissor();
 
             // Scrollbar — drawn only when content overflows the visible body.
             drawScrollbar(mouseX, mouseY, palette, bodyTop, bodyHeight, scrollNow, maxScroll);
@@ -502,8 +576,11 @@ public class SpaciousCategoryTab {
         }
         scrollbarVisible = true;
 
-        int trackTop = bodyTop + CARD_RADIUS - 2;
-        int trackBottom = bodyTop + bodyHeight - CARD_RADIUS;
+        // Fixed inset rather than one tied to CARD_RADIUS — the scrollbar sits
+        // well inside the column, so the panel's corner radius has no say in
+        // where it starts.
+        int trackTop = bodyTop + 3;
+        int trackBottom = bodyTop + bodyHeight - 5;
         int trackHeight = trackBottom - trackTop;
         if (trackHeight < 24) return;
 
@@ -512,11 +589,10 @@ public class SpaciousCategoryTab {
         int thumbY = trackTop + (int) ((trackHeight - thumbH)
                 * (scrollNow / (float) maxScroll));
 
-        // Scrollbar sits inside the SCROLLBAR_RESERVE strip on the right
-        // of the body. Track is 3px wide, thumb 5px, both centered in the
-        // reserve area so the thumb never bleeds onto the cards.
+        // Overlays the rows rather than reserving a strip — rows now run the
+        // full width of the column, so there is no gutter to sit in.
         int trackW = 3;
-        int trackX = x + TAB_WIDTH - LIST_PADDING - SCROLLBAR_RESERVE / 2 - trackW / 2;
+        int trackX = x + TAB_WIDTH - SCROLLBAR_RESERVE / 2 - trackW / 2;
         RenderUtils.drawRoundedRectAA(trackX, trackTop, trackX + trackW, trackBottom,
                 trackW / 2.0F, (35 << 24) | 0xFFFFFF);
 
@@ -539,21 +615,13 @@ public class SpaciousCategoryTab {
     /* ====================================================================== */
 
     public boolean mouseClicked(int mouseX, int mouseY, int button) {
-        if (!visible || openAnim.get() < 0.4F) return false;
+        if (openAnim.get() < 0.4F) return false;
         int totalH = getCurrentHeight();
         if (mouseX < x || mouseX > x + TAB_WIDTH || mouseY < y || mouseY > y + totalH) return false;
 
-        // Header: left-click drags, right-click toggles collapsed.
+        // Header drags the column. No right-click collapse — with the
+        // chevron gone there would be no way to tell it had happened.
         if (mouseY < y + HEADER_HEIGHT) {
-            if (button == 1) {
-                collapsed = !collapsed;
-                // Persist immediately so collapse state survives
-                // GUI close + game restart.
-                if (crow.client.main.Crow.clientConfig != null) {
-                    crow.client.main.Crow.clientConfig.saveConfig();
-                }
-                return true;
-            }
             if (button == 0) {
                 dragging = true;
                 dragOffsetX = mouseX - x;
@@ -644,7 +712,6 @@ public class SpaciousCategoryTab {
     }
 
     public void scroll(int delta) {
-        if (!visible || collapsed) return;
         int maxScroll = getMaxScroll();
         if (maxScroll <= 0) return;
         int step = (SpaciousModuleCard.CARD_HEIGHT + CARD_GAP) * 3 / 2;
@@ -658,13 +725,11 @@ public class SpaciousCategoryTab {
     }
 
     public boolean containsPoint(int mouseX, int mouseY) {
-        if (!visible) return false;
         return mouseX >= x && mouseX <= x + TAB_WIDTH
                 && mouseY >= y && mouseY <= y + getCurrentHeight();
     }
 
     public void keyTyped(char c, int k) {
-        if (!visible) return;
         for (SpaciousModuleCard card : moduleCards) {
             card.keyTyped(c, k);
         }

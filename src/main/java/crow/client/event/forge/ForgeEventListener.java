@@ -21,17 +21,24 @@ import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
 import org.lwjgl.opengl.GL11;
 
+import java.util.List;
+
 public class ForgeEventListener {
 
     @SubscribeEvent
     public void onTick(TickEvent.ClientTickEvent e) {
         try {
             if (e.phase == TickEvent.Phase.END) {
-                Crow.eventBus.post(new crow.client.event.impl.TickEvent());
-                if (Utils.Player.isPlayerInGame())
-                    for (Module module : Crow.moduleManager.getModules())
-                        if (Minecraft.getMinecraft().currentScreen instanceof ClickGui)
-                            try { module.guiUpdate(); } catch (Throwable t) { logHandlerError("guiUpdate", module, t); }
+                // ponytail: the screen check was inside the loop, re-evaluated
+                // once per module per tick for a value that can't change mid-loop.
+                if (Utils.Player.isPlayerInGame()
+                        && Minecraft.getMinecraft().currentScreen instanceof ClickGui) {
+                    List<Module> modules = Crow.moduleManager.getModules();
+                    for (int i = 0; i < modules.size(); i++) {
+                        Module module = modules.get(i);
+                        try { module.guiUpdate(); } catch (Throwable t) { logHandlerError("guiUpdate", module, t); }
+                    }
+                }
             }
         } catch (Throwable t) {
             logHandlerError("onTick", null, t);
@@ -42,10 +49,13 @@ public class ForgeEventListener {
     public void onRenderTick(TickEvent.RenderTickEvent e) {
         try {
         if (e.phase == TickEvent.Phase.END) {
-            if (Utils.Player.isPlayerInGame())
-                for (Module module : Crow.moduleManager.getModules())
-                    if (Minecraft.getMinecraft().currentScreen == null)
-                        try { module.keybind(); } catch (Throwable t) { logHandlerError("keybind", module, t); }
+            if (Utils.Player.isPlayerInGame() && Minecraft.getMinecraft().currentScreen == null) {
+                List<Module> modules = Crow.moduleManager.getModules();
+                for (int i = 0; i < modules.size(); i++) {
+                    Module module = modules.get(i);
+                    try { module.keybind(); } catch (Throwable t) { logHandlerError("keybind", module, t); }
+                }
+            }
 
             prepareHudRenderState();
 
@@ -134,9 +144,21 @@ public class ForgeEventListener {
         try { Crow.eventBus.post(new ForgeEvent(e)); } catch (Throwable t) { logHandlerError("onRenderWorldLast", null, t); }
     }
 
+    // ponytail: this fires once per living entity per tick — on a busy server
+    // that's thousands of posts a second, each one allocating a ForgeEvent and
+    // fanning out to every subscribed module through Guava's reflective
+    // dispatch. Every consumer either wants the local player (JumpReset,
+    // Velocity) or an entity that is mid-knockback (WTap, which additionally
+    // requires hurtTime == maxHurtTime). The gate below is a strict superset of
+    // all three, so behaviour is unchanged and the vast majority of posts —
+    // idle mobs and untouched players — never reach the bus.
     @SubscribeEvent
     public void onLivingUpdate(LivingEvent.LivingUpdateEvent e) {
-        try { Crow.eventBus.post(new ForgeEvent(e)); } catch (Throwable t) { logHandlerError("onLivingUpdate", null, t); }
+        try {
+            if (e.entityLiving == null) return;
+            if (e.entityLiving != Minecraft.getMinecraft().thePlayer && e.entityLiving.hurtTime <= 0) return;
+            Crow.eventBus.post(new ForgeEvent(e));
+        } catch (Throwable t) { logHandlerError("onLivingUpdate", null, t); }
     }
 
     @SubscribeEvent

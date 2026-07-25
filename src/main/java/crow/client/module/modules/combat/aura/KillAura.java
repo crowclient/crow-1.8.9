@@ -1,10 +1,11 @@
 package crow.client.module.modules.combat.aura;
 
-import java.awt.Color;
 import java.util.concurrent.ThreadLocalRandom;
 
 import net.minecraft.item.ItemBow;
+import net.minecraft.item.ItemBucketMilk;
 import net.minecraft.item.ItemFood;
+import net.minecraft.item.ItemPotion;
 import net.minecraft.item.ItemStack;
 
 import org.lwjgl.input.Mouse;
@@ -26,9 +27,9 @@ import crow.client.module.setting.impl.TickSetting;
 import crow.client.utils.CoolDown;
 import crow.client.utils.SilentAim;
 import crow.client.utils.Utils;
+import net.minecraft.client.settings.GameSettings;
 import net.minecraft.client.settings.KeyBinding;
 import net.minecraft.entity.EntityLivingBase;
-import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.network.play.server.S08PacketPlayerPosLook;
 import net.minecraft.util.MathHelper;
 import net.minecraft.world.WorldSettings.GameType;
@@ -40,7 +41,7 @@ public class KillAura extends Module {
 
     public static SliderSetting reach, rotationSpeed;
     private DoubleSliderSetting cps;
-    private TickSetting disableOnTp, disableWhenFlying, mouseDown, onlySurvival, fixMovement;
+    private TickSetting disableOnTp, disableWhenFlying, mouseDown, onlySurvival;
     private TickSetting randomizeRotation, smoothRotation, autoBlock, targetRing;
     private SliderSetting attackTickDelay;
     private ComboSetting blockMode;
@@ -54,6 +55,9 @@ public class KillAura extends Module {
     private double burstMultiplier;
     private boolean inBurst;
     private int ticksSinceAttack;
+    private boolean auraUseItemDown;
+    private boolean auraUseItemQueued;
+    private volatile boolean teleportResetPending;
 
     private float aimDriftYaw, aimDriftPitch;
     private int aimDriftTicks;
@@ -66,7 +70,7 @@ public class KillAura extends Module {
     private static final long TARGET_PERSIST_MS = 600L;
 
     public KillAura() {
-        super("KillAura", ModuleCategory.combat);
+        super("SilentAura", ModuleCategory.combat);
         this.registerSetting(new DescriptionSetting("Set targets in Client->Targets"));
         this.registerSetting(reach = new SliderSetting("Reach", 4.0, 3.0, 6.0, 0.05));
         this.registerSetting(rotationSpeed = new SliderSetting("Rot speed", 80, 10, 300, 1));
@@ -76,7 +80,9 @@ public class KillAura extends Module {
         this.registerSetting(disableOnTp = new TickSetting("Off on TP", true));
         this.registerSetting(disableWhenFlying = new TickSetting("Off flying", true));
         this.registerSetting(mouseDown = new TickSetting("Hold LMB", false));
-        this.registerSetting(fixMovement = new TickSetting("Move fix", true));
+        // No "Move fix" toggle: movement always follows the reported yaw. Walking
+        // on the camera yaw while the packet carries the aim yaw is a guaranteed
+        // simulation mismatch, so there is no correct way to turn it off.
         this.registerSetting(smoothRotation = new TickSetting("Smooth rot", true));
         this.registerSetting(randomizeRotation = new TickSetting("Rand rot", true));
         this.registerSetting(autoBlock = new TickSetting("Auto block", false));
@@ -101,33 +107,55 @@ public class KillAura extends Module {
         lastTargetSeenMs = 0L;
         targetAcquiredMs = 0L;
         reactionDelayMs = 0L;
+        auraUseItemDown = false;
+        auraUseItemQueued = false;
+        teleportResetPending = false;
+        SilentAim.release(this);
     }
 
     @Override
     public void onDisable() {
+        teleportResetPending = false;
         target = null;
         locked = true;
-        leftDown = false;
-        KeyBinding.setKeyBindState(mc.gameSettings.keyBindUseItem.getKeyCode(), false);
+        releaseAttackState();
+        SilentAim.release(this);
     }
 
     @Subscribe
-    public void gameLoopEvent(GameLoopEvent e) {
+    public void gameLoopCleanup(GameLoopEvent e) {
+        if (consumeTeleportReset()) return;
+        if (!Utils.Player.isPlayerInGame() || mc.currentScreen != null
+                || mc.thePlayer == null || mc.playerController == null
+                || (target != null && (!target.isEntityAlive()
+                    || mc.thePlayer.getDistanceToEntity(target) > reach.getInput()))) {
+            clearTargetState();
+        }
+    }
+
+    @Subscribe
+    public void onUpdate(UpdateEvent e) {
+        if (consumeTeleportReset()) return;
+
+        if (e.isPost()) {
+            runPostUpdate();
+            return;
+        }
+        if (!e.isPre()) return;
+
         if (!Utils.Player.isPlayerInGame() || mc.currentScreen != null || mc.thePlayer == null || mc.playerController == null) {
-            target = null;
-            locked = true;
+            clearTargetState();
             return;
         }
 
         if (onlySurvival.isToggled() && mc.playerController.getCurrentGameType() != GameType.SURVIVAL) {
-            target = null; locked = true; return;
+            clearTargetState(); return;
         }
-        if (!tpCooldown.hasFinished()) { target = null; locked = true; return; }
-        if (mouseDown.isToggled() && !Mouse.isButtonDown(0)) { target = null; locked = true; return; }
-        if (disableWhenFlying.isToggled() && mc.thePlayer.capabilities.isFlying) { target = null; locked = true; return; }
+        if (!tpCooldown.hasFinished()) { clearTargetState(); return; }
+        if (mouseDown.isToggled() && !Mouse.isButtonDown(0)) { clearTargetState(); return; }
+        if (disableWhenFlying.isToggled() && mc.thePlayer.capabilities.isFlying) { clearTargetState(); return; }
 
-        double targetRange = Math.max(reach.getInput(), Targets.getDistanceSetting());
-        EntityLivingBase candidate = Targets.getTargetEntityNoFov(targetRange);
+        EntityLivingBase candidate = Targets.getTargetEntityNoFov(reach.getInput());
         EntityLivingBase entityTarget = candidate;
         if (target != null && target.isEntityAlive()
                 && mc.thePlayer.getDistanceToEntity(target) <= reach.getInput()
@@ -139,22 +167,11 @@ public class KillAura extends Module {
             }
         }
         if (entityTarget == null || !entityTarget.isEntityAlive() || mc.thePlayer.getDistanceToEntity(entityTarget) > reach.getInput()) {
-            target = null;
-            locked = true;
-
             if (lastTargetId != -1
                     && System.currentTimeMillis() - lastTargetSeenMs > TARGET_PERSIST_MS) {
                 lastTargetId = -1;
             }
-            aimDriftYaw = aimDriftPitch = 0;
-            aimDriftTicks = 0;
-
-            targetYaw = mc.thePlayer.rotationYaw;
-            targetPitch = mc.thePlayer.rotationPitch;
-
-            if (!isUsingConsumable()) {
-                KeyBinding.setKeyBindState(mc.gameSettings.keyBindUseItem.getKeyCode(), false);
-            }
+            clearTargetState();
             return;
         }
 
@@ -192,19 +209,42 @@ public class KillAura extends Module {
         req.profile = SilentAim.Profile.COMBAT;
         req.priority = 100;
         if (!smoothRotation.isToggled()) {
-            // Snap mode: large per-tick caps short-circuit the spring smoothing.
-            req.maxYawStepDeg = 180f;
-            req.maxPitchStepDeg = 180f;
+            req.instant = true;
+            req.disableTremor = true;
         } else {
-            req.maxYawStepDeg = (float) rotationSpeed.getInput();
-            req.maxPitchStepDeg = (float) rotationSpeed.getInput() * 0.8f;
+            float speed = (float) rotationSpeed.getInput();
+            req.maxYawStepDeg = speed;
+            req.maxPitchStepDeg = speed * 0.8f;
+            // Drive stiffness off the slider too, the way BlockIn does. Mapping
+            // the slider to the per-tick cap alone made everything above ~40 a
+            // no-op — the spring never asks for more than stiffness*error — so
+            // the whole upper range behaved identically and acquisition always
+            // ran at the fixed 0.55, which lands a 60 degree sweep in one 33
+            // degree step. Now the slider actually controls settle time.
+            float t = MathHelper.clamp_float((speed - 10f) / (300f - 10f), 0f, 1f);
+            req.stiffness = 0.15f + t * (0.80f - 0.15f);
         }
         req.claimant = this;
         SilentAim.aim(req);
+    }
+
+    private void runPostUpdate() {
+        if (!Utils.Player.isPlayerInGame() || mc.currentScreen != null
+                || mc.thePlayer == null || mc.playerController == null
+                || target == null || locked || !target.isEntityAlive()
+                || mc.thePlayer.getDistanceToEntity(target) > reach.getInput()) {
+            clearTargetState();
+            return;
+        }
+        if (!SilentAim.isClaimedBy(this) || isUsingConsumable()) {
+            releaseAttackState();
+            return;
+        }
 
         ticksSinceAttack++;
         boolean reacted = System.currentTimeMillis() - targetAcquiredMs >= reactionDelayMs;
-        float lastYawApplied = SilentAim.getServerYaw() - SilentAim.getPrevServerYaw();
+        float lastYawApplied = MathHelper.wrapAngleTo180_float(
+                SilentAim.getServerYaw() - SilentAim.getPrevServerYaw());
         boolean stableAim = Math.abs(lastYawApplied) < 6.0F;
         if (reacted && stableAim
                 && ticksSinceAttack >= (int) attackTickDelay.getInput()
@@ -212,33 +252,29 @@ public class KillAura extends Module {
             crowClick();
         }
 
-        BlockMode bm = (BlockMode) blockMode.getMode();
+        BlockMode bm = autoBlock.isToggled() ? (BlockMode) blockMode.getMode() : BlockMode.NONE;
         boolean holdingSword = Utils.Player.isPlayerHoldingSword();
         if (bm == BlockMode.VANILLA && holdingSword
                 && mc.thePlayer.prevSwingProgress < mc.thePlayer.swingProgress) {
+            releaseAuraUseItemState();
             KeyBinding.onTick(mc.gameSettings.keyBindUseItem.getKeyCode());
+            auraUseItemQueued = true;
         } else if (bm == BlockMode.BLOCK_HIT && holdingSword) {
 
             long now = System.currentTimeMillis();
             boolean releaseWindow = leftUpTime > 0
                     && now >= leftUpTime - 90L
                     && now <= leftUpTime + 60L;
-            KeyBinding.setKeyBindState(mc.gameSettings.keyBindUseItem.getKeyCode(), !releaseWindow);
+            setAuraUseItemState(!releaseWindow);
+        } else {
+            releaseAuraUseItemState();
         }
     }
 
     @Subscribe
-    public void onUpdate(UpdateEvent e) {
-        if (!Utils.Player.isPlayerInGame()) return;
-        if (locked) return;
-        SilentAim.applyToUpdate(e);
-    }
-
-    @Subscribe
     public void packetEvent(PacketEvent e) {
-        if (e.getPacket() instanceof S08PacketPlayerPosLook && disableOnTp.isToggled()) {
-            tpCooldown.setCooldown(2000);
-            tpCooldown.start();
+        if (e.isIncoming() && e.getPacket() instanceof S08PacketPlayerPosLook) {
+            teleportResetPending = true;
         }
     }
 
@@ -256,13 +292,14 @@ public class KillAura extends Module {
     }
 
     public void leftClickExecute() {
-        if (target == null || mc.thePlayer == null || mc.playerController == null || !target.isEntityAlive()) {
-            leftDown = false;
+        if (!SilentAim.isClaimedBy(this) || target == null || mc.thePlayer == null
+                || mc.playerController == null || !target.isEntityAlive()) {
+            releaseAttackState();
             return;
         }
 
         if (isUsingConsumable()) {
-            leftDown = false;
+            releaseAttackState();
             return;
         }
 
@@ -279,8 +316,6 @@ public class KillAura extends Module {
                 genLeftTimings();
                 leftDown = false;
             } else if (System.currentTimeMillis() > leftDownTime) {
-                if (Mouse.isButtonDown(1))
-                    KeyBinding.setKeyBindState(mc.gameSettings.keyBindUseItem.getKeyCode(), true);
                 leftDown = true;
             }
         } else {
@@ -311,11 +346,72 @@ public class KillAura extends Module {
         leftDownTime = System.currentTimeMillis() + (delay / 2L) - Utils.Java.rand().nextInt(10);
     }
 
+    private boolean consumeTeleportReset() {
+        if (!teleportResetPending) return false;
+        teleportResetPending = false;
+        SilentAim.release(this);
+        if (!disableOnTp.isToggled()) return false;
+
+        tpCooldown.setCooldown(2000);
+        tpCooldown.start();
+        clearTargetState();
+        return true;
+    }
+
+    private void clearTargetState() {
+        target = null;
+        locked = true;
+        aimDriftYaw = aimDriftPitch = 0f;
+        aimDriftTicks = 0;
+        if (mc.thePlayer != null) {
+            targetYaw = mc.thePlayer.rotationYaw;
+            targetPitch = mc.thePlayer.rotationPitch;
+        }
+        SilentAim.release(this);
+        releaseAttackState();
+    }
+
+    private void releaseAttackState() {
+        leftDown = false;
+        leftDownTime = 0L;
+        leftUpTime = 0L;
+        ticksSinceAttack = 0;
+        releaseAuraUseItemState();
+    }
+
+    private void setAuraUseItemState(boolean pressed) {
+        if (!pressed) {
+            releaseAuraUseItemState();
+            return;
+        }
+        if (mc.gameSettings == null || mc.gameSettings.keyBindUseItem == null) return;
+        KeyBinding.setKeyBindState(mc.gameSettings.keyBindUseItem.getKeyCode(), true);
+        auraUseItemDown = true;
+    }
+
+    private void releaseAuraUseItemState() {
+        if (mc.gameSettings != null && mc.gameSettings.keyBindUseItem != null) {
+            KeyBinding useItem = mc.gameSettings.keyBindUseItem;
+            if (auraUseItemQueued) {
+                useItem.isPressed();
+            }
+            if (auraUseItemDown) {
+                boolean physicallyDown = GameSettings.isKeyDown(useItem);
+                KeyBinding.setKeyBindState(useItem.getKeyCode(), physicallyDown);
+            }
+        }
+        auraUseItemQueued = false;
+        auraUseItemDown = false;
+    }
+
     private boolean isUsingConsumable() {
         if (mc.thePlayer == null || !mc.thePlayer.isUsingItem()) return false;
         ItemStack inUse = mc.thePlayer.getItemInUse();
         if (inUse == null) return false;
-        return inUse.getItem() instanceof ItemFood || inUse.getItem() instanceof ItemBow;
+        return inUse.getItem() instanceof ItemFood
+                || inUse.getItem() instanceof ItemBow
+                || inUse.getItem() instanceof ItemPotion
+                || inUse.getItem() instanceof ItemBucketMilk;
     }
 
     public double getReach() { return reach.getInput(); }

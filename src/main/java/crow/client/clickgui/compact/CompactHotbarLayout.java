@@ -74,11 +74,11 @@ public class CompactHotbarLayout {
                     && mouseY >= cy && mouseY < cy + CELL_SIZE;
             boolean selected = pickerSlot == i;
 
-            int bgColor = selected ? palette.accent : (hovered ? palette.hoverCard : palette.toggleOff);
+            int bgColor = selected ? GuiModule.accent() : (hovered ? palette.hoverCard : palette.toggleOff);
             RenderUtils.drawRoundedRectAA(cx, cy, cx + CELL_SIZE, cy + CELL_SIZE, 5, bgColor);
 
             if (selected) {
-                RenderUtils.drawRoundedOutline(cx, cy, cx + CELL_SIZE, cy + CELL_SIZE, 5, 1.0F, palette.accent);
+                RenderUtils.drawRoundedOutline(cx, cy, cx + CELL_SIZE, cy + CELL_SIZE, 5, 1.0F, GuiModule.accent());
             }
 
             HotbarSlotConfig config = setting.getSlot(i);
@@ -142,9 +142,8 @@ public class CompactHotbarLayout {
         int panelW = getPickerWidth();
         int presetButtonW = (panelW - 8 - 8 - 4) / 2;
 
-        RenderUtils.drawRoundedRectAA(px - 3, py - 3, px + panelW + 3, py + PICKER_H + 3, 10, 0x42000000);
-        RenderUtils.drawRoundedRectAA(px, py, px + panelW, py + PICKER_H, 10, palette.content);
-        RenderUtils.drawRoundedOutline(px, py, px + panelW, py + PICKER_H, 10, 1.0F, palette.separator);
+        RenderUtils.drawGlassPanel(px, py, px + panelW, py + PICKER_H, 10,
+                palette.content, RenderUtils.GLASS_SHADOW_RAISED);
         RenderUtils.drawFlowingGradientRoundedRect(px + 1, py + 1, px + panelW - 1, py + 3, 9, 24, 0);
 
         int curY = py + 8;
@@ -222,12 +221,13 @@ public class CompactHotbarLayout {
 
                 if (itemHovered) {
                     RenderUtils.drawRoundedRectAA(ix, iy, ix + ITEM_CELL, iy + ITEM_CELL, 3,
-                            CompactModuleCard.blendColor(palette.card, palette.accent, 0.25F));
+                            CompactModuleCard.blendColor(palette.card, GuiModule.accent(), 0.25F));
 
                     ItemStack stack = new ItemStack(item);
                     String name = stack.getDisplayName();
                     int tw = (int) FontUtil.small.getStringWidth(name) + 10;
-                    RenderUtils.drawRoundedRectAA(mouseX + 10, mouseY - 14, mouseX + 10 + tw, mouseY - 1, 5, 0xEE1A1A20);
+                    RenderUtils.drawGlassPanel(mouseX + 10, mouseY - 14, mouseX + 10 + tw, mouseY - 1, 5,
+                            palette.card, RenderUtils.GLASS_SHADOW_RAISED);
                     FontUtil.small.drawSmoothString(name, mouseX + 15, mouseY - 12, 0xFFFFFFFF);
                 }
 
@@ -437,10 +437,7 @@ public class CompactHotbarLayout {
         if (icon == null) {
             return false;
         }
-        Minecraft.getMinecraft().getTextureManager().bindTexture(icon);
-
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+        crow.client.utils.RenderUtils.bindSmoothIcon(icon);
         GlStateManager.enableBlend();
         GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
         GlStateManager.color(1.0F, 1.0F, 1.0F, 0.98F);

@@ -8,6 +8,7 @@ import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonSyntaxException;
@@ -34,26 +35,33 @@ public class ClientConfig {
 
     public ClientConfig() {
         if (!cfgDir.exists())
-            cfgDir.mkdir();
+            cfgDir.mkdirs();
         cfgFile = new File(cfgDir, fileName);
-        if (!cfgFile.exists())
-            try {
-                cfgFile.createNewFile();
-            } catch (final IOException e) {
-                e.printStackTrace();
+        if (!cfgFile.isFile() || cfgFile.length() == 0L) {
+            return;
+        }
+
+        final JsonParser jsonParser = new JsonParser();
+        try (FileReader reader = new FileReader(cfgFile)) {
+            final JsonElement obj = jsonParser.parse(reader);
+            if (obj == null || obj.isJsonNull()) {
+                return;
             }
-        else {
-            final JsonParser jsonParser = new JsonParser();
-            try (FileReader reader = new FileReader(cfgFile)) {
-                final Object obj = jsonParser.parse(reader);
-                config = (JsonObject) obj;
-            } catch (JsonSyntaxException | ClassCastException | IOException e) {
-                e.printStackTrace();
+            if (obj.isJsonObject()) {
+                config = obj.getAsJsonObject();
+            } else {
+                reportInvalidConfig();
             }
+        } catch (JsonSyntaxException | IOException e) {
+            reportInvalidConfig();
         }
     }
 
     public void applyConfig() {
+        if (config == null) {
+            return;
+        }
+
         applyingConfig = true;
         try {
             Utils.URLS.hypixelApiKey = config.get("apikey").getAsString();
@@ -69,12 +77,34 @@ public class ClientConfig {
             loadTerminalCoords(config.get("clickgui").getAsJsonObject());
             loadModules(config.get("modules").getAsJsonObject());
         } catch (final Exception e) {
-            e.printStackTrace();
+            config = null;
+            reportInvalidConfig();
+        } finally {
+            applyingConfig = false;
         }
-        applyingConfig = false;
+    }
+
+    /**
+     * Captures the fully initialized runtime defaults without writing them yet.
+     * This keeps a missing, empty, or invalid on-disk file untouched at startup;
+     * the next ordinary save persists the normal client state.
+     */
+    public void initializeDefaultsIfNeeded() {
+        if (config == null) {
+            config = getConfigAsJson();
+        }
+    }
+
+    private void reportInvalidConfig() {
+        System.err.println("[Crow] Ignoring invalid client config at " + cfgFile.getAbsolutePath()
+                + "; the existing file was left unchanged.");
     }
 
     public void applyKeyStrokeSettingsFromConfigFile() {
+        if (config == null || !config.has("keystrokes") || !config.get("keystrokes").isJsonObject()) {
+            return;
+        }
+
         try {
             final JsonObject data = config.get("keystrokes").getAsJsonObject();
             KeyStroke.x = data.get("x").getAsInt();
@@ -86,8 +116,8 @@ public class ClientConfig {
             KeyStroke.blurBackground = !data.has("blurBackground") || data.get("blurBackground").getAsBoolean();
             KeyStroke.size = data.has("size") ? data.get("size").getAsFloat() : 1.0F;
             KeyStroke.backgroundOpacity = data.has("backgroundOpacity") ? data.get("backgroundOpacity").getAsInt() : 155;
-        } catch (final Throwable var4) {
-            var4.printStackTrace();
+        } catch (final RuntimeException e) {
+            System.err.println("[Crow] Ignoring invalid keystroke settings in " + cfgFile.getAbsolutePath() + ".");
         }
     }
 

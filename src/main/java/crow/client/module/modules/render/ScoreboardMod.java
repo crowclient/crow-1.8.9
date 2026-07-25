@@ -80,7 +80,7 @@ public class ScoreboardMod extends Module {
             return;
         }
 
-        ScaledResolution sr = new ScaledResolution(mc);
+        ScaledResolution sr = crow.client.utils.RenderUtils.scaled();
         int screenW = sr.getScaledWidth();
         int screenH = sr.getScaledHeight();
         ScoreObjective objective = getActiveObjective();
@@ -141,7 +141,11 @@ public class ScoreboardMod extends Module {
         GlStateManager.translate(-x, -y, 0);
 
         if (background.isToggled()) {
-            RenderUtils.drawRoundedRectAA(x, y, x + board.width, y + board.height, 8, bg);
+            int shadow = (HUD.dropShadow == null || HUD.dropShadow.isToggled())
+                    ? RenderUtils.GLASS_SHADOW_CHROME : 0;
+            RenderUtils.drawGlassPanel(x, y, x + board.width, y + board.height, 8, bg, shadow);
+            // Flowing theme divider between title and lines.
+            RenderUtils.drawFlowingGradientRoundedRect(x + 6, y + 18, x + board.width - 6, y + 19, 0.5F, 150, 0);
         }
         if (outline.isToggled()) {
             RenderUtils.drawRoundedOutline(x, y, x + board.width, y + board.height, 8, 1.0F, border);

@@ -19,6 +19,61 @@ public final class GUIBlurUtil {
     private static final Minecraft mc = Minecraft.getMinecraft();
 
     private static int captureTexture = -1;
+    private static int captureTexW = -1;
+    private static int captureTexH = -1;
+
+    // ponytail: exactly the attribute groups the blur touches, instead of
+    // GL_ALL_ATTRIB_BITS. This runs twice per blurred HUD element per frame,
+    // and GL_ALL also snapshots lighting (all 8 lights) and the pixel-transfer
+    // tables, which the blur never modifies. If anything ever looks
+    // state-corrupted after a blur, widening this back to GL_ALL_ATTRIB_BITS
+    // is the one-line revert.
+    private static final int BLUR_ATTRIB_MASK =
+              GL11.GL_ENABLE_BIT          // every glEnable/glDisable below
+            | GL11.GL_COLOR_BUFFER_BIT    // color mask, blend func, alpha func
+            | GL11.GL_DEPTH_BUFFER_BIT    // depth mask + depth test
+            | GL11.GL_STENCIL_BUFFER_BIT  // stencil func/op/mask, clear value
+            | GL11.GL_VIEWPORT_BIT        // glViewport for the FBO passes
+            | GL11.GL_TEXTURE_BIT         // bindings + min/mag/wrap params
+            | GL11.GL_TRANSFORM_BIT       // glMatrixMode
+            | GL11.GL_CURRENT_BIT         // glColor4f
+            | GL11.GL_SCISSOR_BIT;        // callers may have scissor active
+
+    // ponytail: see RenderUtils.SCRATCH_* — same per-call direct-alloc problem.
+    private static final java.nio.FloatBuffer SCRATCH_MV =
+            org.lwjgl.BufferUtils.createFloatBuffer(16);
+
+    private static final java.nio.IntBuffer SCRATCH_SCISSOR =
+            org.lwjgl.BufferUtils.createIntBuffer(16);
+
+    /**
+     * Clears the stencil buffer inside {@code (px, py, pw, ph)} only.
+     *
+     * <p>ponytail: {@code glClear} is bounded by the scissor box and nothing
+     * else, so the previous unscissored clear wiped the stencil for the entire
+     * framebuffer. A server HUD lights up ~8 blurred panels — arraylist,
+     * scoreboard, targethud, radar, logo, stats, keystrokes — and each one paid
+     * a full-screen stencil clear to mask a small rectangle. The caller's
+     * scissor state is saved and restored exactly, so callers that rely on
+     * their own scissor to clip the blur are unaffected.
+     */
+    private static void clearStencilIn(int px, int py, int pw, int ph) {
+        boolean hadScissor = GL11.glIsEnabled(GL11.GL_SCISSOR_TEST);
+        SCRATCH_SCISSOR.clear();
+        GL11.glGetInteger(GL11.GL_SCISSOR_BOX, SCRATCH_SCISSOR);
+        int sx = SCRATCH_SCISSOR.get(0), sy = SCRATCH_SCISSOR.get(1);
+        int sw = SCRATCH_SCISSOR.get(2), sh = SCRATCH_SCISSOR.get(3);
+
+        // 2px margin: px/py/pw/ph are truncated from float GUI coords, and a
+        // sliver of stale stencil at the edge shows up as a hard seam.
+        GL11.glEnable(GL11.GL_SCISSOR_TEST);
+        GL11.glScissor(px - 2, py - 2, pw + 4, ph + 4);
+        GL11.glClearStencil(0);
+        GL11.glClear(GL11.GL_STENCIL_BUFFER_BIT);
+
+        GL11.glScissor(sx, sy, sw, sh);
+        if (!hadScissor) GL11.glDisable(GL11.GL_SCISSOR_TEST);
+    }
 
     private static final Map<Long, Framebuffer> fboCache = new HashMap<>();
 
@@ -67,6 +122,25 @@ public final class GUIBlurUtil {
                 EXTFramebufferObject.GL_DEPTH_ATTACHMENT_EXT,
                 EXTFramebufferObject.GL_RENDERBUFFER_EXT,
                 stencilDepthBufferId);
+    }
+
+    /**
+     * Copies the back buffer region into {@link #captureTexture}.
+     *
+     * <p>ponytail: glCopyTexImage2D reallocates the texture's storage on every
+     * call — a driver-side memory allocation per blurred HUD element per frame.
+     * Storage only actually needs reallocating when the region's size changes,
+     * which is on resize/layout, not every frame. The steady-state path is now
+     * glCopyTexSubImage2D, a pure GPU-side blit.
+     */
+    private static void captureBackbuffer(int px, int py, int pw, int ph) {
+        if (pw != captureTexW || ph != captureTexH) {
+            GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA, pw, ph, 0,
+                    GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, (java.nio.ByteBuffer) null);
+            captureTexW = pw;
+            captureTexH = ph;
+        }
+        GL11.glCopyTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, px, py, pw, ph);
     }
 
     private static void setupShader() {
@@ -146,7 +220,7 @@ public final class GUIBlurUtil {
         setupShader();
 
         try {
-            GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+            GL11.glPushAttrib(BLUR_ATTRIB_MASK);
             GL11.glMatrixMode(GL11.GL_PROJECTION);
             GL11.glPushMatrix();
             GL11.glMatrixMode(GL11.GL_MODELVIEW);
@@ -162,7 +236,7 @@ public final class GUIBlurUtil {
             ScaledResolution sr = new ScaledResolution(mc);
             int sf = sr.getScaleFactor();
 
-            java.nio.FloatBuffer modelView = org.lwjgl.BufferUtils.createFloatBuffer(16);
+            java.nio.FloatBuffer modelView = SCRATCH_MV; modelView.rewind();
             GL11.glGetFloat(GL11.GL_MODELVIEW_MATRIX, modelView);
             float scaleX = modelView.get(0);
             float scaleY = modelView.get(5);
@@ -202,13 +276,14 @@ public final class GUIBlurUtil {
 
             if (captureTexture == -1) {
                 captureTexture = GL11.glGenTextures();
+                captureTexW = -1;
+                captureTexH = -1;
             }
 
             float cornerR = Math.max(0f, roundness);
             GL11.glEnable(GL11.GL_STENCIL_TEST);
             GL11.glStencilMask(0xFF);
-            GL11.glClearStencil(0);
-            GL11.glClear(GL11.GL_STENCIL_BUFFER_BIT);
+            clearStencilIn(px, py, pw, ph);
             GL11.glStencilFunc(GL11.GL_ALWAYS, 1, 0xFF);
             GL11.glStencilOp(GL11.GL_KEEP, GL11.GL_KEEP, GL11.GL_REPLACE);
             GL11.glColorMask(false, false, false, false);
@@ -234,7 +309,7 @@ public final class GUIBlurUtil {
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
 
-            GL11.glCopyTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA, px, py, pw, ph, 0);
+            captureBackbuffer(px, py, pw, ph);
 
             GL11.glMatrixMode(GL11.GL_PROJECTION);
             GL11.glPushMatrix();
@@ -386,7 +461,7 @@ public final class GUIBlurUtil {
         setupShader();
 
         try {
-            GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+            GL11.glPushAttrib(BLUR_ATTRIB_MASK);
             GL11.glMatrixMode(GL11.GL_PROJECTION);
             GL11.glPushMatrix();
             GL11.glMatrixMode(GL11.GL_MODELVIEW);
@@ -402,7 +477,7 @@ public final class GUIBlurUtil {
             ScaledResolution sr = new ScaledResolution(mc);
             int sf = sr.getScaleFactor();
 
-            java.nio.FloatBuffer modelView = org.lwjgl.BufferUtils.createFloatBuffer(16);
+            java.nio.FloatBuffer modelView = SCRATCH_MV; modelView.rewind();
             GL11.glGetFloat(GL11.GL_MODELVIEW_MATRIX, modelView);
             float scaleX = modelView.get(0);
             float scaleY = modelView.get(5);
@@ -440,12 +515,13 @@ public final class GUIBlurUtil {
 
             if (captureTexture == -1) {
                 captureTexture = GL11.glGenTextures();
+                captureTexW = -1;
+                captureTexH = -1;
             }
 
             GL11.glEnable(GL11.GL_STENCIL_TEST);
             GL11.glStencilMask(0xFF);
-            GL11.glClearStencil(0);
-            GL11.glClear(GL11.GL_STENCIL_BUFFER_BIT);
+            clearStencilIn(px, py, pw, ph);
             GL11.glStencilFunc(GL11.GL_ALWAYS, 1, 0xFF);
             GL11.glStencilOp(GL11.GL_KEEP, GL11.GL_KEEP, GL11.GL_REPLACE);
             GL11.glColorMask(false, false, false, false);
@@ -467,7 +543,7 @@ public final class GUIBlurUtil {
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
             GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
-            GL11.glCopyTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA, px, py, pw, ph, 0);
+            captureBackbuffer(px, py, pw, ph);
 
             GL11.glMatrixMode(GL11.GL_PROJECTION);
             GL11.glPushMatrix();
@@ -593,5 +669,7 @@ public final class GUIBlurUtil {
             try { GL11.glDeleteTextures(captureTexture); } catch (Exception ignored) {}
             captureTexture = -1;
         }
+        captureTexW = -1;
+        captureTexH = -1;
     }
 }

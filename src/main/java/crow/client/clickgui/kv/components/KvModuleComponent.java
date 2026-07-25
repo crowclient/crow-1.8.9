@@ -69,10 +69,7 @@ public class KvModuleComponent extends KvComponent{
         RenderUtils.drawRoundedOutline(x, y, x + width, y + height, 12, 2, Utils.Client.rainbowDraw(1, 0));
 
         if (moduleIcon != null) {
-            Minecraft.getMinecraft().getTextureManager().bindTexture(moduleIcon);
-
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+            crow.client.utils.RenderUtils.bindSmoothIcon(moduleIcon);
             GL11.glColor4f(1.0f, 1.0f, 1.0f, 1f);
             Gui.drawModalRectWithCustomSizedTexture(x + (FontUtil.normal.getHeight()/2), y, 0, 0, width - FontUtil.normal.getHeight(), nameHeight, width - FontUtil.normal.getHeight(), nameHeight);
         }
@@ -83,10 +80,7 @@ public class KvModuleComponent extends KvComponent{
         FontUtil.normal.drawCenteredString(module.getName(), x + (width / 2), y + nameHeight, 0xFFFFFFFF);
         FontUtil.two.drawCenteredString(module.isEnabled() ? "Enabled" : "Disabled", toggleX + (toggleWidth / 2), toggleY + (toggleHeight / 2), 0xFF000000);
 
-        Minecraft.getMinecraft().getTextureManager().bindTexture(settingIcon);
-
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+        crow.client.utils.RenderUtils.bindSmoothIcon(settingIcon);
         GL11.glColor4f(1.0f, 1.0f, 1.0f, 1f);
         Gui.drawModalRectWithCustomSizedTexture(settingX, settingY, 0, 0, settingWidth, settingHeight, settingWidth, settingHeight);
     }
@@ -114,10 +108,7 @@ public class KvModuleComponent extends KvComponent{
                 2,
                 Utils.Client.rainbowDraw(1, 0), 0x00FFFFFF);
         FontUtil.normal.drawString(module.getName(), titleBoxX + 2, titleBoxY + (titleBoxHeight/2), 0xFFFFFFFF);
-        Minecraft.getMinecraft().getTextureManager().bindTexture(settingIcon);
-
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+        crow.client.utils.RenderUtils.bindSmoothIcon(settingIcon);
 
         Gui.drawModalRectWithCustomSizedTexture(settingX2, settingY2, 0, 0, settingWidth2, settingHeight2, settingWidth2, settingHeight2);
 

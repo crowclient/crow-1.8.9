@@ -17,7 +17,7 @@ public class DebugInfoRenderer extends net.minecraft.client.gui.Gui {
     public void onRenderTick(RenderTickEvent ev) {
         if (Crow.debugger && ev.phase == Phase.END && Utils.Player.isPlayerInGame()) {
             if (mc.currentScreen == null) {
-                ScaledResolution res = new ScaledResolution(mc);
+                ScaledResolution res = crow.client.utils.RenderUtils.scaled();
                 double bps = Utils.Player.getPlayerBPS(Freecam.en == null ? mc.thePlayer : Freecam.en, 2);
                 int rgb;
                 if (bps < 10.0D) {

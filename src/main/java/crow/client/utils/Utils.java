@@ -630,17 +630,20 @@ public class Utils {
             return false;
         }
 
+        // ponytail: Color.getHSBColor allocates a Color just to read .getRGB()
+        // back off it. HSBtoRGB is the same maths without the object; this runs
+        // once per HUD row per frame.
         public static int rainbowDraw(long speed, long... delay) {
             long time = System.currentTimeMillis() + (delay.length > 0 ? delay[0] : 0L);
-            return Color.getHSBColor((float) (time % (15000L / speed)) / (15000.0F / (float) speed), 1.0F, 1.0F)
-                    .getRGB();
+            return 0xFF000000 | Color.HSBtoRGB(
+                    (float) (time % (15000L / speed)) / (15000.0F / (float) speed), 1.0F, 1.0F);
         }
 
         public static int customDraw(int delay) {
             int r = getColorBetween(150, 250, delay);
             int g = getColorBetween(0, 165, delay);
             int b = getColorBetween(0, 1, delay);
-            return new Color(r, g, b).getRGB();
+            return 0xFF000000 | (r << 16) | (g << 8) | b;
         }
 
         public static int getColorBetween(int min, int max, int delay) {

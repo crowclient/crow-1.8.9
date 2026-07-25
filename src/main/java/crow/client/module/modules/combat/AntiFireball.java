@@ -6,6 +6,7 @@ import crow.client.module.Module;
 import crow.client.module.setting.impl.SliderSetting;
 import crow.client.module.setting.impl.TickSetting;
 import crow.client.utils.Utils;
+import net.minecraft.client.settings.GameSettings;
 import net.minecraft.client.settings.KeyBinding;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.projectile.EntityFireball;
@@ -32,8 +33,6 @@ public class AntiFireball extends Module {
 
     private float targetYaw;
     private float targetPitch;
-
-    private boolean wasForward, wasBack, wasLeft, wasRight, wasJump, wasSprint;
 
     private int engageTicks;
 
@@ -165,7 +164,7 @@ public class AntiFireball extends Module {
             reflectedIds.add(targetFireball.getEntityId());
 
             mc.playerController.attackEntity(mc.thePlayer, targetFireball);
-            mc.thePlayer.swingItem();
+            if (swing.isToggled()) mc.thePlayer.swingItem();
             disengage();
         }
     }
@@ -177,12 +176,6 @@ public class AntiFireball extends Module {
         lerpYaw = mc.thePlayer.rotationYaw;
         lerpPitch = mc.thePlayer.rotationPitch;
 
-        wasForward = mc.gameSettings.keyBindForward.isKeyDown();
-        wasBack = mc.gameSettings.keyBindBack.isKeyDown();
-        wasLeft = mc.gameSettings.keyBindLeft.isKeyDown();
-        wasRight = mc.gameSettings.keyBindRight.isKeyDown();
-        wasJump = mc.gameSettings.keyBindJump.isKeyDown();
-        wasSprint = mc.gameSettings.keyBindSprint.isKeyDown();
         freezeMovement();
     }
 
@@ -209,13 +202,20 @@ public class AntiFireball extends Module {
     }
 
     private void releaseMovementFreeze() {
-        if (mc.thePlayer == null) return;
-        KeyBinding.setKeyBindState(mc.gameSettings.keyBindForward.getKeyCode(), wasForward && org.lwjgl.input.Keyboard.isKeyDown(mc.gameSettings.keyBindForward.getKeyCode()));
-        KeyBinding.setKeyBindState(mc.gameSettings.keyBindBack.getKeyCode(), wasBack && org.lwjgl.input.Keyboard.isKeyDown(mc.gameSettings.keyBindBack.getKeyCode()));
-        KeyBinding.setKeyBindState(mc.gameSettings.keyBindLeft.getKeyCode(), wasLeft && org.lwjgl.input.Keyboard.isKeyDown(mc.gameSettings.keyBindLeft.getKeyCode()));
-        KeyBinding.setKeyBindState(mc.gameSettings.keyBindRight.getKeyCode(), wasRight && org.lwjgl.input.Keyboard.isKeyDown(mc.gameSettings.keyBindRight.getKeyCode()));
-        KeyBinding.setKeyBindState(mc.gameSettings.keyBindJump.getKeyCode(), wasJump && org.lwjgl.input.Keyboard.isKeyDown(mc.gameSettings.keyBindJump.getKeyCode()));
-        KeyBinding.setKeyBindState(mc.gameSettings.keyBindSprint.getKeyCode(), wasSprint && org.lwjgl.input.Keyboard.isKeyDown(mc.gameSettings.keyBindSprint.getKeyCode()));
+        if (mc == null || mc.gameSettings == null) return;
+
+        restoreBinding(mc.gameSettings.keyBindForward);
+        restoreBinding(mc.gameSettings.keyBindBack);
+        restoreBinding(mc.gameSettings.keyBindLeft);
+        restoreBinding(mc.gameSettings.keyBindRight);
+        restoreBinding(mc.gameSettings.keyBindJump);
+        restoreBinding(mc.gameSettings.keyBindSprint);
+    }
+
+    private void restoreBinding(KeyBinding binding) {
+        if (binding != null) {
+            KeyBinding.setKeyBindState(binding.getKeyCode(), GameSettings.isKeyDown(binding));
+        }
     }
 
     private void computeTargetAngles() {
