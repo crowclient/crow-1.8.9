@@ -370,27 +370,48 @@ public final class SilentAim {
     }
 
     /**
-     * Put the rendered model's <i>pitch</i> on the silent rotation for the length
-     * of the render call. Driven from {@code RenderPlayerEvent.Pre}, undone in
-     * {@link #endPlayerRender}.
+     * Put the rendered model's <i>body</i> and <i>pitch</i> on the silent
+     * rotation for the length of the render call. Driven from
+     * {@code RenderPlayerEvent.Pre}, undone in {@link #endPlayerRender}.
      *
-     * <p>Yaw needs no help here. The movement phase now runs with
-     * {@code rotationYaw} swapped to {@link #getServerYaw()} (see the
-     * {@code EntityPlayerSP.onLivingUpdate} mixin), so
-     * {@code EntityPlayer.onLivingUpdate}'s {@code rotationYawHead = rotationYaw}
-     * and the {@code renderYawOffset} update both land on the reported yaw on
-     * their own, keeping vanilla's head/body lag and its ±75° clamp intact.
+     * <p>The head needs no help: {@code EntityPlayer.onLivingUpdate} assigns
+     * {@code rotationYawHead = rotationYaw} inside the window the
+     * {@code EntityPlayerSP} mixin swaps, so it already carries the reported yaw.
      *
-     * <p>Pitch is the exception: it is restored after the movement phase because
-     * {@code rotationPitch} <i>is</i> the first-person camera, so the only place
-     * it can be corrected is inside the render call.
+     * <p>The body does. {@code EntityLivingBase.updateDistance} — the thing that
+     * drives {@code renderYawOffset} — is called from {@code onUpdate}, not
+     * {@code onLivingUpdate}, so it lands outside that window and pins the body
+     * to the camera:
+     * <pre>
+     *   float f1 = wrapAngleTo180(this.rotationYaw - this.renderYawOffset);
+     *   ... clamp f1 to ±75 ...
+     *   this.renderYawOffset = this.rotationYaw - f1;
+     * </pre>
+     * Head on the reported yaw and body on the camera yaw, with the difference
+     * clamped at 75°, renders as a permanently twisted neck rather than a player
+     * who turned. Shifting the body by the same delta the head took restores
+     * vanilla's head/body relationship — including its lag and that clamp — and
+     * just rotates the whole assembly onto the reported yaw.
+     *
+     * <p>Done here rather than in a mixin because {@code updateDistance} has no
+     * obfuscation mapping under that name, so it cannot be targeted directly.
+     *
+     * <p>Pitch is the other exception: it is restored after the movement phase
+     * because {@code rotationPitch} <i>is</i> the first-person camera, so the
+     * render call is the only place it can be corrected.
      */
     public static void beginPlayerRender(net.minecraft.entity.player.EntityPlayer p) {
         if (!active || renderSwapped || p == null || p != mc.thePlayer) return;
 
+        float bodyDelta = MathHelper.wrapAngleTo180_float(serverYaw - cameraYaw);
+
+        stashBodyYaw = p.renderYawOffset;
+        stashPrevBodyYaw = p.prevRenderYawOffset;
         stashPitch = p.rotationPitch;
         stashPrevPitch = p.prevRotationPitch;
 
+        p.renderYawOffset += bodyDelta;
+        p.prevRenderYawOffset += bodyDelta;
         p.rotationPitch = serverPitch;
         p.prevRotationPitch = prevServerPitch;
 
@@ -401,6 +422,8 @@ public final class SilentAim {
     public static void endPlayerRender(net.minecraft.entity.player.EntityPlayer p) {
         if (!renderSwapped || p == null || p != mc.thePlayer) return;
 
+        p.renderYawOffset = stashBodyYaw;
+        p.prevRenderYawOffset = stashPrevBodyYaw;
         p.rotationPitch = stashPitch;
         p.prevRotationPitch = stashPrevPitch;
 
@@ -434,8 +457,9 @@ public final class SilentAim {
     private static Object trackedPlayer;
     private static Object trackedWorld;
 
-    // Render-time pitch swap — see beginPlayerRender.
+    // Render-time body/pitch swap — see beginPlayerRender.
     private static boolean renderSwapped;
+    private static float stashBodyYaw, stashPrevBodyYaw;
     private static float stashPitch, stashPrevPitch;
 
     // Movement-phase yaw swap — see beginMovementPhase.
