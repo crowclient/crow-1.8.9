@@ -196,8 +196,7 @@ public class KillAura extends Module {
         double heightFactor = 0.975D + r.nextDouble() * 0.018D;
         tickAimDrift(r);
 
-        float[] rot = Utils.Player.getTargetRotations(target, 0.03F + aimDriftPitch * 0.02F,
-                SilentAim.getServerYaw(), SilentAim.getServerPitch(), heightFactor);
+        float[] rot = aimPoint(heightFactor, 0.03F + aimDriftPitch * 0.02F);
         targetYaw = rot[0] + aimDriftYaw;
         targetPitch = rot[1];
 
@@ -498,6 +497,61 @@ public class KillAura extends Module {
     }
 
     public double getReach() { return reach.getInput(); }
+
+    /**
+     * Yaw/pitch to the nearest point on the target's hitbox, rather than to its
+     * centre axis.
+     *
+     * <p>{@code Utils.Player.getTargetRotations} aims at {@code posX}/{@code posZ}
+     * at eye height — a point <i>inside</i> the player. That is fine at range and
+     * useless up close: as the gap shrinks, the angle to a point inside them
+     * swings faster and faster, until at contact range it is essentially inside
+     * your own head and a fraction of a block of movement demands tens of degrees
+     * of rotation. The spring cannot follow that, so {@link #isAimedAtTarget()}
+     * never settles and nothing is ever thrown — it stops hitting exactly when
+     * you are closest.
+     *
+     * <p>Clamping our own eye position into their box gives the nearest point on
+     * the surface facing us instead. Standing beside someone that point is level
+     * with the eye, so the pitch is near zero and stable; the required rotation
+     * stays small precisely where the centre-axis aim blew up. It is also where a
+     * real player looks — at the body in front of them, not through it.
+     *
+     * <p>{@code inset} keeps the point off the exact edge so a tick of position
+     * desync cannot put it outside the hitbox, and {@code heightFactor} keeps the
+     * existing bias up towards the head when there is room for it.
+     */
+    private float[] aimPoint(double heightFactor, float pitchNudge) {
+        double eyeX = mc.thePlayer.posX;
+        double eyeY = mc.thePlayer.posY + mc.thePlayer.getEyeHeight();
+        double eyeZ = mc.thePlayer.posZ;
+
+        net.minecraft.util.AxisAlignedBB box = target.getEntityBoundingBox();
+        double inset = 0.12D;
+        double minX = box.minX + inset, maxX = box.maxX - inset;
+        double minZ = box.minZ + inset, maxZ = box.maxZ - inset;
+        double minY = box.minY + inset;
+        double maxY = Math.max(minY, box.minY + (box.maxY - box.minY) * heightFactor);
+
+        double aimX = MathHelper.clamp_double(eyeX, Math.min(minX, maxX), Math.max(minX, maxX));
+        double aimY = MathHelper.clamp_double(eyeY, minY, maxY);
+        double aimZ = MathHelper.clamp_double(eyeZ, Math.min(minZ, maxZ), Math.max(minZ, maxZ));
+
+        double dx = aimX - eyeX;
+        double dz = aimZ - eyeZ;
+        double dy = aimY - eyeY + pitchNudge;
+        double horiz = Math.sqrt(dx * dx + dz * dz);
+
+        // Standing inside their footprint leaves no horizontal direction to point
+        // at, so hold the yaw we already have rather than snapping somewhere
+        // arbitrary — a snap there would be both jarring and a rotation spike.
+        float yaw = horiz < 1.0E-4D
+                ? SilentAim.getServerYaw()
+                : (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0D);
+        float pitch = (float) (-Math.toDegrees(Math.atan2(dy, Math.max(horiz, 1.0E-4D))));
+
+        return new float[] { yaw, MathHelper.clamp_float(pitch, -89.5F, 89.5F) };
+    }
 
     private boolean isAimedAtTarget() {
         if (target == null) {

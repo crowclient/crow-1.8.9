@@ -442,6 +442,18 @@ public final class SilentAim {
     /* ===================================================================== */
 
     private static float serverYaw, serverPitch;
+    /**
+     * Double-precision accumulators behind {@code serverYaw}/{@code serverPitch}.
+     *
+     * <p>Every step is an exact multiple of the mouse GCD, so the rotation should
+     * stay on that lattice forever — which is the whole premise AimModulo360
+     * tests. Accumulating into a float lost roughly 1e-7 of a degree per tick,
+     * and a long engagement is thousands of ticks, so the sum drifted off the
+     * lattice far enough to flag intermittently. Summing in double and narrowing
+     * only on read keeps the reported value the nearest float to a true lattice
+     * point, which is the same rounding a vanilla client has.
+     */
+    private static double serverYawAcc, serverPitchAcc;
     private static float prevServerYaw, prevServerPitch;
     private static float yawVel, pitchVel;
 
@@ -489,6 +501,7 @@ public final class SilentAim {
         currentPriority = Integer.MIN_VALUE;
         returnTicks = 0;
         serverYaw = serverPitch = 0f;
+        serverYawAcc = serverPitchAcc = 0.0;
         prevServerYaw = prevServerPitch = 0f;
         yawVel = pitchVel = 0f;
         tremorYawPhaseA = tremorYawPhaseB = 0.0;
@@ -521,9 +534,7 @@ public final class SilentAim {
             float yErr = MathHelper.wrapAngleTo180_float(targetYaw - serverYaw);
             float pErr = targetPitch - serverPitch;
             yawVel = pitchVel = 0f;
-            serverYaw += snapStepToGcd(yErr, yErr);
-            serverPitch = MathHelper.clamp_float(
-                    serverPitch + snapStepToGcd(pErr, pErr), -89.5f, 89.5f);
+            applyStep(snapStepToGcd(yErr, yErr), snapStepToGcd(pErr, pErr));
             return;
         }
 
@@ -564,8 +575,15 @@ public final class SilentAim {
         float pitStep = snapStepToGcd(
                 stepAxis(pitErr, pitCap, p.minSpeedDeg, k, c, /*isYaw=*/ false), pitErr);
 
-        serverYaw += yawStep;
-        serverPitch = MathHelper.clamp_float(serverPitch + pitStep, -89.5f, 89.5f);
+        applyStep(yawStep, pitStep);
+    }
+
+    /** Add one GCD-aligned step, accumulating in double. See {@link #serverYawAcc}. */
+    private static void applyStep(float yawStep, float pitchStep) {
+        serverYawAcc += yawStep;
+        serverPitchAcc = MathHelper.clamp_double(serverPitchAcc + pitchStep, -89.5, 89.5);
+        serverYaw = (float) serverYawAcc;
+        serverPitch = (float) serverPitchAcc;
     }
 
     /**
@@ -650,6 +668,8 @@ public final class SilentAim {
         if (mc.thePlayer == null) return;
         serverYaw = mc.thePlayer.rotationYaw;
         serverPitch = mc.thePlayer.rotationPitch;
+        serverYawAcc = serverYaw;
+        serverPitchAcc = serverPitch;
         prevServerYaw = serverYaw;
         prevServerPitch = serverPitch;
         yawVel = pitchVel = 0f;
