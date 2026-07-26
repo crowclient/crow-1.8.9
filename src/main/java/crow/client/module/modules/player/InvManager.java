@@ -144,9 +144,56 @@ public class InvManager extends Module {
             dropExcessArrows(inv);
         }
 
+        if (combineDuplicates.isToggled()) {
+            combineStacks(inv);
+        }
+
         if (autoSort.isToggled()) {
             sortHotbar(inv);
         }
+    }
+
+    /**
+     * Merge partial stacks of identical items so duplicates collapse into
+     * fewer slots. Each merge is a pick-up → deposit → put-back sequence
+     * that always leaves the cursor empty, so a partial deposit (sink
+     * filling past 64) can never strand items on the cursor.
+     */
+    private void combineStacks(ContainerPlayer inv) {
+        java.util.Map<String, List<Integer>> groups = new java.util.LinkedHashMap<>();
+        for (int slot = INV_START; slot < INV_END; slot++) {
+            ItemStack stack = inv.getSlot(slot).getStack();
+            if (stack == null) continue;
+            if (!stack.isStackable() || stack.getMaxStackSize() <= 1) continue;
+            if (stack.stackSize >= stack.getMaxStackSize()) continue; // already full
+            groups.computeIfAbsent(itemKey(stack), k -> new ArrayList<>()).add(slot);
+        }
+        for (java.util.Map.Entry<String, List<Integer>> group : groups.entrySet()) {
+            List<Integer> slots = group.getValue();
+            if (slots.size() < 2) continue;
+            int sink = slots.get(0);
+            for (int i = 1; i < slots.size(); i++) {
+                actionQueue.add(new InvAction(ActionType.MERGE, slots.get(i), sink, group.getKey()));
+            }
+        }
+    }
+
+    private String itemKey(ItemStack s) {
+        if (s == null) return null;
+        return Item.getIdFromItem(s.getItem()) + ":" + s.getMetadata() + ":"
+                + (s.getTagCompound() == null ? "" : s.getTagCompound().toString());
+    }
+
+    /**
+     * The whole queue is built from one snapshot but drained one action per
+     * tick, so an earlier action can invalidate a later one's slot — a merge
+     * empties a slot that a queued sort swap was going to pull from. Every
+     * slot-sensitive action carries the item key it expects to find and is
+     * skipped if the slot no longer holds it.
+     */
+    private boolean slotStillHolds(ContainerPlayer inv, int slot, String expectedKey) {
+        if (expectedKey == null) return true;
+        return expectedKey.equals(itemKey(inv.getSlot(slot).getStack()));
     }
 
     private void sortHotbar(ContainerPlayer inv) {
@@ -160,7 +207,8 @@ public class InvManager extends Module {
             if (sourceSlot == -1) continue;
             if (sourceSlot == targetSlot) continue;
 
-            actionQueue.add(new InvAction(ActionType.SWAP, sourceSlot, i));
+            actionQueue.add(new InvAction(ActionType.SWAP, sourceSlot, i,
+                    itemKey(inv.getSlot(sourceSlot).getStack())));
         }
     }
 
@@ -426,8 +474,21 @@ public class InvManager extends Module {
                 mc.playerController.windowClick(inv.windowId, action.slot, 0, 1, mc.thePlayer);
                 break;
             case SWAP:
-
+                if (!slotStillHolds(inv, action.slot, action.expectedKey)) break;
                 mc.playerController.windowClick(inv.windowId, action.slot, action.targetHotbarIdx, 2, mc.thePlayer);
+                break;
+            case MERGE:
+                // Both ends must still hold the same item, or the deposit
+                // click turns into a swap and shuffles two unrelated stacks.
+                if (!slotStillHolds(inv, action.slot, action.expectedKey)
+                        || !slotStillHolds(inv, action.targetHotbarIdx, action.expectedKey)) break;
+                // Pick up source, deposit onto sink (merges up to max stack),
+                // then click source again to drop any remainder back. The
+                // final click is a no-op when the cursor is already empty,
+                // so the cursor never ends a merge holding items.
+                mc.playerController.windowClick(inv.windowId, action.slot, 0, 0, mc.thePlayer);
+                mc.playerController.windowClick(inv.windowId, action.targetHotbarIdx, 0, 0, mc.thePlayer);
+                mc.playerController.windowClick(inv.windowId, action.slot, 0, 0, mc.thePlayer);
                 break;
         }
     }
@@ -494,17 +555,24 @@ public class InvManager extends Module {
         SlotScore(int slot, float score) { this.slot = slot; this.score = score; }
     }
 
-    private enum ActionType { DROP, SHIFT_CLICK, SWAP }
+    private enum ActionType { DROP, SHIFT_CLICK, SWAP, MERGE }
 
     private static class InvAction {
         final ActionType type;
         final int slot;
         final int targetHotbarIdx;
+        /** Item key {@code slot} held when queued; null skips the check. */
+        final String expectedKey;
 
         InvAction(ActionType type, int slot, int targetHotbarIdx) {
+            this(type, slot, targetHotbarIdx, null);
+        }
+
+        InvAction(ActionType type, int slot, int targetHotbarIdx, String expectedKey) {
             this.type = type;
             this.slot = slot;
             this.targetHotbarIdx = targetHotbarIdx;
+            this.expectedKey = expectedKey;
         }
     }
 }

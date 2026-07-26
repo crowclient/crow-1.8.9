@@ -71,13 +71,12 @@ public class Module {
     }
 
     protected <E extends Module> E withEnabled(boolean i) {
-        this.enabled = i;
         this.defaultEnabled = i;
-        try {
-            setToggled(i);
-        } catch (Exception e) {
-        }
         return (E) this;
+    }
+
+    public void activateDefaultState() {
+        setToggled(defaultEnabled);
     }
 
     public <E extends Module> E withDescription(String i) {
@@ -134,12 +133,13 @@ public class Module {
         try {
             if (hasBind)
                 this.keycode = data.get("keycode").getAsInt();
-            setToggled(data.get("enabled").getAsBoolean());
+            boolean shouldBeEnabled = data.get("enabled").getAsBoolean();
             JsonObject settingsData = data.get("settings").getAsJsonObject();
             for (Setting setting : getSettings())
                 if (settingsData.has(setting.getName()))
                     setting.applyConfigFromJson(settingsData.get(setting.getName()).getAsJsonObject());
             this.showInHud = data.get("showInHud").getAsBoolean();
+            setToggled(shouldBeEnabled);
         } catch (NullPointerException ignored) {
 
         }
@@ -175,36 +175,54 @@ public class Module {
         if(!canBeEnabled() || enabled)
             return;
 
+        boolean lifecycleStarted = false;
         try {
-            this.onEnable();
             this.enabled = true;
             if (!registered) {
                 Crow.eventBus.register(this);
                 registered = true;
             }
+            lifecycleStarted = true;
+            this.onEnable();
+            if (!enabled)
+                return;
             playToggleSound(true);
             NotificationRenderer.moduleStateChanged(this);
         } catch (Throwable throwable) {
-            this.enabled = false;
             if (registered) {
-                Crow.eventBus.unregister(this);
-                registered = false;
+                try {
+                    Crow.eventBus.unregister(this);
+                } catch (Throwable ignored) {
+                }
+            }
+            registered = false;
+            boolean needsCleanup = lifecycleStarted && enabled;
+            this.enabled = false;
+            if (needsCleanup) {
+                try {
+                    this.onDisable();
+                } catch (Throwable cleanupFailure) {
+                    try {
+                        throwable.addSuppressed(cleanupFailure);
+                    } catch (Throwable ignored) {
+                    }
+                }
             }
             handleToggleFailure("enable", throwable);
         }
     }
 
     public void disable() {
-        if(!canBeEnabled() || !enabled)
+        if(!enabled)
             return;
         boolean wasRegistered = registered;
+        this.enabled = false;
         try {
             if (registered) {
                 Crow.eventBus.unregister(this);
                 registered = false;
             }
             this.onDisable();
-            this.enabled = false;
             playToggleSound(false);
             NotificationRenderer.moduleStateChanged(this);
         } catch (Throwable throwable) {
@@ -221,8 +239,6 @@ public class Module {
     }
 
     public void setToggled(boolean enabled) {
-        if(!canBeEnabled())
-            return;
         if (enabled)
             enable();
         else
@@ -336,10 +352,10 @@ public class Module {
 
     public void resetToDefaults() {
         this.keycode = defualtKeyCode;
-        this.setToggled(defaultEnabled);
-
         for (Setting setting : this.settings)
             setting.resetToDefaults();
+
+        this.setToggled(defaultEnabled);
     }
 
     public void setModuleComponent(ModuleComponent component) {
@@ -373,10 +389,30 @@ public class Module {
     }
 
     public void unRegister() {
-        if(registered) {
-            registered = false;
-            Crow.eventBus.unregister(this);
-            onDisable();
+        boolean wasActive = enabled || registered;
+        Throwable failure = null;
+        enabled = false;
+        if (registered) {
+            try {
+                Crow.eventBus.unregister(this);
+            } catch (Throwable throwable) {
+                failure = throwable;
+            } finally {
+                registered = false;
+            }
+        }
+        if (wasActive) {
+            try {
+                onDisable();
+            } catch (Throwable throwable) {
+                if (failure == null)
+                    failure = throwable;
+                else
+                    failure.addSuppressed(throwable);
+            }
+        }
+        if (failure != null) {
+            handleToggleFailure("unregister", failure);
         }
     }
 

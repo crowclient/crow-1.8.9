@@ -4,13 +4,19 @@ import com.google.common.eventbus.Subscribe;
 import crow.client.event.EventDirection;
 import crow.client.event.impl.PacketEvent;
 import crow.client.event.impl.TickEvent;
+import crow.client.main.Crow;
 import crow.client.module.Module;
+import crow.client.module.modules.player.Blink;
+import crow.client.module.modules.player.BlinkInfinite;
 import crow.client.module.setting.impl.DescriptionSetting;
 import crow.client.module.setting.impl.SliderSetting;
+import crow.client.utils.PacketReplayGuard;
 import crow.client.module.setting.impl.TickSetting;
 import crow.client.utils.Utils;
 import net.minecraft.network.Packet;
+import net.minecraft.network.play.client.C02PacketUseEntity;
 import net.minecraft.network.play.client.C03PacketPlayer;
+import net.minecraft.network.play.client.C08PacketPlayerBlockPlacement;
 import net.minecraft.network.play.server.S12PacketEntityVelocity;
 
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -107,9 +113,14 @@ public class LagRange extends Module {
         if (!Utils.Player.isPlayerInGame() || mc.isSingleplayer()) return;
 
         if (e.getDirection() == EventDirection.OUTGOING) {
-            if (flushing) return;
+            if (e.isCancelled() || flushing || PacketReplayGuard.isReplaying() || isBroadBlinkEnabled()) return;
 
             Packet<?> packet = e.getPacket();
+
+            if (packet instanceof C02PacketUseEntity || packet instanceof C08PacketPlayerBlockPlacement) {
+                flushAllPosition();
+                return;
+            }
 
             if (delayPosition.isToggled() && lagMs.getInput() > 0 && packet instanceof C03PacketPlayer) {
 
@@ -150,9 +161,23 @@ public class LagRange extends Module {
     private void sendPacket(Packet<?> packet) {
         if (mc.getNetHandler() != null && packet != null) {
             try {
-                mc.getNetHandler().addToSendQueue(packet);
+                PacketReplayGuard.runGuarded(new Runnable() {
+                    @Override
+                    public void run() {
+                        mc.getNetHandler().addToSendQueue(packet);
+                    }
+                });
             } catch (Exception ignored) {}
         }
+    }
+
+    private boolean isBroadBlinkEnabled() {
+        if (Crow.moduleManager == null) return false;
+
+        Module blink = Crow.moduleManager.getModuleByClazz(Blink.class);
+        Module blinkInfinite = Crow.moduleManager.getModuleByClazz(BlinkInfinite.class);
+        return (blink != null && blink.isEnabled())
+                || (blinkInfinite != null && blinkInfinite.isEnabled());
     }
 
     private void flushAllPosition() {

@@ -1,6 +1,7 @@
 package crow.client.module.modules.world;
 
 import java.util.HashMap;
+import java.util.Locale;
 
 import com.google.common.eventbus.Subscribe;
 
@@ -10,7 +11,6 @@ import crow.client.main.Crow;
 import crow.client.module.Module;
 import crow.client.module.modules.player.Freecam;
 import crow.client.module.setting.impl.TickSetting;
-import crow.client.module.setting.impl.SliderSetting;
 import crow.client.utils.Utils;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.EntityPlayer;
@@ -19,8 +19,7 @@ import net.minecraftforge.event.entity.EntityJoinWorldEvent;
 public class AntiBot extends Module {
     private static final HashMap<EntityPlayer, Long> newEnt = new HashMap<>();
     private final long ms = 4000L;
-    public static TickSetting waitTicks, dead, checkYaw;
-    public static SliderSetting yawTolerance;
+    public static TickSetting waitTicks, dead;
 
     public AntiBot() {
         super("AntiBot", ModuleCategory.world);
@@ -28,8 +27,6 @@ public class AntiBot extends Module {
 
         this.registerSetting(waitTicks = new TickSetting("Wait 80t", false));
         this.registerSetting(dead = new TickSetting("Hide dead", true));
-        this.registerSetting(checkYaw = new TickSetting("Check yaw", true));
-        this.registerSetting(yawTolerance = new SliderSetting("Yaw tol", 1.0D, 0.1D, 5.0D, 0.1D));
     }
 
     @Override
@@ -60,8 +57,9 @@ public class AntiBot extends Module {
     }
 
     public static boolean bot(Entity en) {
-        if (!Utils.Player.isPlayerInGame() || mc.currentScreen != null)
+        if (!Utils.Player.isPlayerInGame() || mc.currentScreen != null || en == null) {
             return false;
+        }
         if (Freecam.en != null && Freecam.en == en) {
             return true;
         }
@@ -70,61 +68,17 @@ public class AntiBot extends Module {
             return false;
         }
 
-        if (en instanceof EntityPlayer && waitTicks.isToggled() && newEnt.containsKey(en)) {
-            return true;
-        }
-        if (en.getName().startsWith("§c")) {
+        if (isWithinJoinGrace(en)) {
             return true;
         }
         if (en.isDead && dead.isToggled()) {
             return true;
         }
-
-        if (en.getDisplayName() == null) {
-            return false;
-        }
-
-        if (checkYaw.isToggled()) {
-            float yawDiff = Math.abs(en.rotationYaw - mc.thePlayer.rotationYaw) % 360.0F;
-            if (yawDiff > 180.0F) yawDiff = 360.0F - yawDiff;
-            if (yawDiff <= yawTolerance.getInput()) {
-                return true;
-            }
-        }
-
-        String n = en.getDisplayName().getUnformattedText();
-
-        if (n.contains("§")) {
-            return n.contains("[NPC] ");
-        }
-        if (n.isEmpty() && en.getName().isEmpty()) {
-            return true;
-        }
-
-        if (n.length() == 10) {
-            int num = 0;
-            int let = 0;
-            for (char c : n.toCharArray()) {
-                if (Character.isLetter(c)) {
-                    if (Character.isUpperCase(c)) {
-                        return false;
-                    }
-                    ++let;
-                } else {
-                    if (!Character.isDigit(c)) {
-                        return false;
-                    }
-                    ++num;
-                }
-            }
-            return num >= 2 && let >= 2;
-        }
-
-        return false;
+        return hasNpcTagOrEmptyName(en);
     }
 
     public static boolean renderBot(Entity en) {
-        if (!Utils.Player.isPlayerInGame()) {
+        if (!Utils.Player.isPlayerInGame() || en == null) {
             return false;
         }
         if (Freecam.en != null && Freecam.en == en) {
@@ -134,29 +88,37 @@ public class AntiBot extends Module {
         if (antiBot == null || !antiBot.isEnabled()) {
             return false;
         }
-        if (en == null) {
-            return false;
+
+        if (isWithinJoinGrace(en)) {
+            return true;
         }
         if (en.isDead && dead.isToggled()) {
             return true;
         }
-        if (en.getName().startsWith("Â§c")) {
-            return true;
-        }
+        return hasNpcTagOrEmptyName(en);
+    }
+
+    private static boolean isWithinJoinGrace(Entity en) {
+        return en instanceof EntityPlayer
+                && waitTicks.isToggled()
+                && newEnt.containsKey(en);
+    }
+
+    private static boolean hasNpcTagOrEmptyName(Entity en) {
+        String entityName = en.getName();
         if (en.getDisplayName() == null) {
-            return false;
+            return isEmpty(entityName);
         }
 
-        String formatted = en.getDisplayName().getFormattedText();
-        String unformatted = en.getDisplayName().getUnformattedText();
-        String lower = unformatted == null ? "" : unformatted.toLowerCase();
-
-        if ((formatted != null && formatted.contains("[NPC] "))
-                || lower.startsWith("npc")
-                || lower.contains("[npc]")) {
+        String displayName = en.getDisplayName().getUnformattedText();
+        if (displayName != null
+                && displayName.toLowerCase(Locale.ROOT).contains("[npc]")) {
             return true;
         }
+        return isEmpty(displayName) && isEmpty(entityName);
+    }
 
-        return unformatted.isEmpty() && en.getName().isEmpty();
+    private static boolean isEmpty(String value) {
+        return value == null || value.isEmpty();
     }
 }

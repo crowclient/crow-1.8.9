@@ -8,6 +8,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import crow.client.main.Crow;
 import crow.client.module.Module;
+import crow.client.module.ModuleManager;
 import crow.client.module.modules.other.NameHider;
 import crow.client.utils.font.ChatFontContext;
 import crow.client.utils.font.FontUtil;
@@ -83,6 +84,10 @@ public class MixinFontRenderer {
         StringBuilder trimmed = new StringBuilder();
         int limit = Math.max(0, width);
 
+        // Note: this is O(n²) (re-measures the whole prefix per character), but
+        // it only runs on chat re-wrap, not per frame. Left alone deliberately:
+        // the two backing renderers disagree on whether '§' codes are
+        // zero-width, so incremental accumulation is not equivalent for both.
         for (int i = 0; i < working.length(); i++) {
             char c = working.charAt(i);
             trimmed.append(c);
@@ -97,7 +102,7 @@ public class MixinFontRenderer {
     }
 
     private boolean shouldHide() {
-        if (Crow.moduleManager == null) {
+        if (!ModuleManager.initialized || Crow.moduleManager == null) {
             return false;
         }
         if (!cachedNameHiderResolved) {

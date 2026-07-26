@@ -1,5 +1,6 @@
 package crow.client.clickgui.compact;
 
+import crow.client.module.modules.client.GuiModule;
 import crow.client.module.modules.client.GuiModule.CompactPalette;
 import crow.client.module.setting.impl.SliderSetting;
 import crow.client.utils.Animation;
@@ -77,7 +78,7 @@ public class CompactSlider {
 
         int fillW = Math.max(0, Math.min(trackWidth, (int) (trackWidth * smoothPercent)));
         if (fillW > 0) {
-            int fillColor = CompactModuleCard.blendColor(palette.toggleOff, palette.accent, 0.65F);
+            int fillColor = CompactModuleCard.blendColor(palette.toggleOff, GuiModule.accent(), 0.65F);
             RenderUtils.drawRoundedRectAA(x, barY, x + fillW, barY + barH, 3, fillColor);
             int gradientAlpha = (int) (165 + activeAnimation * 50);
             RenderUtils.drawFlowingGradientRoundedRect(x, barY, x + fillW, barY + barH, 3,
@@ -97,7 +98,7 @@ public class CompactSlider {
             RenderUtils.drawRoundedRectAA(
                     knobCenterX - glowR, knobCenterY - glowR,
                     knobCenterX + glowR, knobCenterY + glowR,
-                    glowR, (glowAlpha << 24) | (palette.accent & 0x00FFFFFF));
+                    glowR, (glowAlpha << 24) | (GuiModule.accent() & 0x00FFFFFF));
         }
 
         // Drop shadow, 1px offset.

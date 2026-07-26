@@ -4,6 +4,7 @@ import org.lwjgl.opengl.GL11;
 
 import crow.client.module.Module.ModuleCategory;
 import crow.client.module.modules.client.GuiModule.CompactPalette;
+import crow.client.utils.Animation;
 import crow.client.utils.RenderUtils;
 import crow.client.utils.font.FontUtil;
 import net.minecraft.client.Minecraft;
@@ -20,11 +21,11 @@ public class CompactCategoryItem {
     private final ResourceLocation icon;
 
     private int x, y, w, h;
-    private float hoverAnimation = 0.0F;
-    private float selectAnimation = 0.0F;
-
-    private float selectPulse = 0.0F;
-    private boolean wasSelected = false;
+    // Duration-based, not per-frame lerps: a `+= delta * 0.22F` step runs
+    // more than twice as fast at 240fps as at 60, so the whole sidebar
+    // changed feel with the framerate.
+    private final Animation hoverAnim = new Animation(180, Animation::easeOutCubic);
+    private final Animation selectAnim = new Animation(180, Animation::easeOutCubic);
 
     public CompactCategoryItem(ModuleCategory category) {
         this.category = category;
@@ -53,15 +54,12 @@ public class CompactCategoryItem {
     public void draw(int mouseX, int mouseY, boolean selected, CompactPalette palette) {
         boolean hovered = isMouseOver(mouseX, mouseY);
 
-        hoverAnimation += ((hovered ? 1.0F : 0.0F) - hoverAnimation) * 0.22F;
-        selectAnimation += ((selected ? 1.0F : 0.0F) - selectAnimation) * 0.22F;
-
-        if (selected && !wasSelected) {
-            selectPulse = 1.0F;
-        }
-        wasSelected = selected;
-        selectPulse *= 0.88F;
-        if (selectPulse < 0.01F) selectPulse = 0.0F;
+        hoverAnim.setTarget(hovered ? 1.0F : 0.0F);
+        hoverAnim.update();
+        selectAnim.setTarget(selected ? 1.0F : 0.0F);
+        selectAnim.update();
+        float hoverAnimation = hoverAnim.get();
+        float selectAnimation = selectAnim.get();
 
         int drawX = x + Math.round(hoverAnimation * 1.0F + selectAnimation * 2.0F);
 
@@ -87,24 +85,19 @@ public class CompactCategoryItem {
             RenderUtils.drawRoundedRectAA(barX, barTop, barX + 2, barBottom, 1, accent);
         }
 
-        int textPadding = icon != null ? TEXT_PADDING : 12;
-        if (icon != null) {
-            Minecraft.getMinecraft().getTextureManager().bindTexture(icon);
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
-            float alpha = 0.78F + 0.22F * Math.max(hoverAnimation, selectAnimation);
-            GL11.glColor4f(1.0F, 1.0F, 1.0F, alpha);
-            int iconDrawX = drawX + ICON_PADDING + (selected ? 1 : 0);
-            Gui.drawModalRectWithCustomSizedTexture(
-                    iconDrawX, y + (h - ICON_SIZE) / 2,
-                    0, 0, ICON_SIZE, ICON_SIZE, ICON_SIZE, ICON_SIZE);
-            GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
-        }
-
         int textColor = selected
                 ? palette.titleText
                 : CompactModuleCard.blendColor(palette.mutedText, palette.titleText, hoverAnimation * 0.40F);
-        FontUtil.semiBold.drawSmoothString(category.getName(), drawX + textPadding, y + (h - 9) / 2, textColor);
+
+        // Phosphor glyph rather than a PNG: it inherits textColor, so the
+        // icon brightens with the label on hover for free.
+        String glyph = crow.client.utils.Icons.forCategory(category);
+        float iconSize = ICON_SIZE;
+        float iconDrawX = drawX + ICON_PADDING + (selected ? 1 : 0);
+        crow.client.utils.Icons.drawLeft(glyph, iconDrawX, y + h / 2.0F, iconSize, textColor);
+
+        FontUtil.semiBold.drawSmoothString(category.getName(),
+                drawX + TEXT_PADDING, y + (h - 9) / 2, textColor);
     }
 
     public boolean isMouseOver(int mouseX, int mouseY) {

@@ -225,7 +225,6 @@ public class Scaffold extends Module {
         req.priority = 40;
         req.maxYawStepDeg = speed;
         req.maxPitchStepDeg = speed * 0.85f;
-        req.fixMovement = true;
         req.claimant = this;
         SilentAim.aim(req);
     }
@@ -239,8 +238,6 @@ public class Scaffold extends Module {
         req.priority = 30;
         req.maxYawStepDeg = 4.0f;
         req.maxPitchStepDeg = 4.0f;
-        req.fixMovement = false;
-        req.syncVisualHead = false;
         req.claimant = this;
         SilentAim.aim(req);
     }
@@ -527,12 +524,6 @@ public class Scaffold extends Module {
                 MathHelper.floor_double(x),
                 MathHelper.floor_double(y),
                 MathHelper.floor_double(z));
-    }
-
-    @Subscribe
-    public void onUpdate(UpdateEvent e) {
-        if (!Utils.Player.isPlayerInGame()) return;
-        SilentAim.applyToUpdate(e);
     }
 
     @Subscribe

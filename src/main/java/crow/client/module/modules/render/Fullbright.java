@@ -8,6 +8,8 @@ import crow.client.module.setting.impl.DescriptionSetting;
 public class Fullbright extends Module {
 
     private float originalGamma;
+    private boolean gammaCaptured;
+    private Mode activeMode;
     private ComboSetting mode;
     public static boolean nightVision;
 
@@ -19,14 +21,37 @@ public class Fullbright extends Module {
 
     @Override
     public void postApplyConfig() {
-        onEnable();
+        if (isEnabled()) {
+            applyMode((Mode) mode.getMode());
+        }
     }
 
     @Override
     public void onEnable() {
-        switch ((Mode) mode.getMode()) {
+        applyMode((Mode) mode.getMode());
+    }
+
+    @Override
+    public void onDisable() {
+        revertActiveMode();
+    }
+
+    public void revertChanges(Mode mode) {
+        if (activeMode == mode) {
+            revertActiveMode();
+        }
+    }
+
+    private void applyMode(Mode nextMode) {
+        if (!isEnabled() || nextMode == null || activeMode == nextMode)
+            return;
+
+        revertActiveMode();
+        activeMode = nextMode;
+        switch (nextMode) {
         case Gamma:
             originalGamma = mc.gameSettings.gammaSetting;
+            gammaCaptured = true;
             mc.gameSettings.gammaSetting = 100;
             break;
         case NightVision:
@@ -35,27 +60,24 @@ public class Fullbright extends Module {
         }
     }
 
-    @Override
-    public void onDisable() {
-        revertChanges((Mode) mode.getMode());
-    }
+    private void revertActiveMode() {
+        Mode previousMode = activeMode;
+        activeMode = null;
 
-    public void revertChanges(Mode mode) {
-        switch (mode) {
-        case Gamma:
-            mc.gameSettings.gammaSetting = originalGamma > 10 ? 1 : originalGamma;
-            break;
-        case NightVision:
+        if (previousMode == Mode.Gamma) {
+            if (gammaCaptured) {
+                mc.gameSettings.gammaSetting = originalGamma;
+                gammaCaptured = false;
+            }
+        } else if (previousMode == Mode.NightVision) {
             nightVision = false;
-            break;
         }
     }
 
     @Override
     public void guiButtonToggled(Setting b) {
-        if (b == mode) {
-            revertChanges((Mode) mode.getPrevMode());
-            onEnable();
+        if (b == mode && isEnabled()) {
+            applyMode((Mode) mode.getMode());
         }
     }
 

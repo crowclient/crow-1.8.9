@@ -164,9 +164,7 @@ public class ClickGui extends GuiScreen {
                     GlStateManager.enableBlend();
                     GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
                     GlStateManager.color(1.0F, 1.0F, 1.0F, Math.max(0.0F, logoAlpha));
-                    mc.getTextureManager().bindTexture(CROW_ICON);
-                    GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
-                    GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+                    crow.client.utils.RenderUtils.bindSmoothIcon(CROW_ICON);
                     Gui.drawModalRectWithCustomSizedTexture(logoX, logoY, 0, 0, logoSize, logoSize, logoSize, logoSize);
                     GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
                 }

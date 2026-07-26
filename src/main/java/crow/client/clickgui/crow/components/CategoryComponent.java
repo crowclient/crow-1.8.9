@@ -170,9 +170,7 @@ public class CategoryComponent extends Component {
         }
 
         if (categoryIcon != null) {
-            Minecraft.getMinecraft().getTextureManager().bindTexture(categoryIcon);
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+            crow.client.utils.RenderUtils.bindSmoothIcon(categoryIcon);
             GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
             Gui.drawModalRectWithCustomSizedTexture(x + 9, y + 6, 0, 0, ICON_SIZE, ICON_SIZE, ICON_SIZE, ICON_SIZE);
         }
