@@ -357,13 +357,11 @@ public abstract class MixinEntityPlayerSP extends AbstractClientPlayer {
         // phase at once. It also lands rotationYawHead (set from rotationYaw in
         // EntityPlayer.onLivingUpdate) and renderYawOffset on the reported yaw,
         // so the third-person model follows the silent rotation for free.
-        boolean silentYaw = SilentAim.isActive();
-        float cameraYaw = this.rotationYaw;
-        if (silentYaw) this.rotationYaw = SilentAim.getServerYaw();
+        SilentAim.beginMovementPhase();
         try {
             super.onLivingUpdate();
         } finally {
-            if (silentYaw) this.rotationYaw = cameraYaw;
+            SilentAim.endMovementPhase();
         }
         if (this.onGround && this.capabilities.isFlying && !this.mc.playerController.isSpectatorMode()) {
             this.capabilities.isFlying = false;

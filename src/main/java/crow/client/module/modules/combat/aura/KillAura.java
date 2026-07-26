@@ -57,6 +57,8 @@ public class KillAura extends Module {
     private int ticksSinceAttack;
     private boolean auraUseItemDown;
     private boolean auraUseItemQueued;
+    /** Ticks left holding the use-item key up so the server sees us not blocking. */
+    private int unblockTicks;
     private volatile boolean teleportResetPending;
 
     private float aimDriftYaw, aimDriftPitch;
@@ -109,6 +111,7 @@ public class KillAura extends Module {
         reactionDelayMs = 0L;
         auraUseItemDown = false;
         auraUseItemQueued = false;
+        unblockTicks = 0;
         teleportResetPending = false;
         SilentAim.release(this);
     }
@@ -268,6 +271,31 @@ public class KillAura extends Module {
             return;
         }
 
+        // MultiActionsA ("attacked while using an item") and MultiActionsE
+        // ("swinging while using an item") both fire on any attack or swing that
+        // reaches the server while it still believes we are using an item — and
+        // a blocking sword counts, whether Auto block put it up or the user is
+        // simply holding right-click. Vanilla cannot produce that: the release
+        // has to come first.
+        //
+        // The release cannot share a tick with the attack either, because
+        // PacketOrderI flags an attack sent after a RELEASE_USE_ITEM in the same
+        // tick, so this releases and then sits out the tick. Re-blocking is held
+        // off for a couple of ticks afterwards by unblockTicks, otherwise the
+        // user's own held right-click re-blocks instantly and we never get a
+        // clear tick to swing in. That release/attack/re-block rhythm is exactly
+        // what a human block-hitting produces.
+        if (unblockTicks > 0) {
+            unblockTicks--;
+            forceUseItemUp();
+        }
+        if (mc.thePlayer.isUsingItem()) {
+            forceUseItemUp();
+            mc.playerController.onStoppedUsingItem(mc.thePlayer);
+            unblockTicks = 2;
+            return;
+        }
+
         ticksSinceAttack++;
         boolean reacted = System.currentTimeMillis() - targetAcquiredMs >= reactionDelayMs;
         float lastYawApplied = MathHelper.wrapAngleTo180_float(
@@ -278,6 +306,12 @@ public class KillAura extends Module {
                 && isAimedAtTarget()) {
             crowClick();
         }
+
+        // Putting the block back up in the tick we attacked in would land the C08
+        // place after the C02 attack inside one tick, which is PacketOrderJ
+        // ("use item after attacking"). ticksSinceAttack is zeroed by the attack
+        // itself, so this simply skips the tick it happened in.
+        if (unblockTicks > 0 || ticksSinceAttack < 1) return;
 
         BlockMode bm = autoBlock.isToggled() ? (BlockMode) blockMode.getMode() : BlockMode.NONE;
         boolean holdingSword = Utils.Player.isPlayerHoldingSword();
@@ -332,7 +366,13 @@ public class KillAura extends Module {
 
         if (leftUpTime > 0L && leftDownTime > 0L) {
             if (System.currentTimeMillis() > leftUpTime && leftDown) {
-                if (mc.thePlayer.isUsingItem()) mc.thePlayer.stopUsingItem();
+                // No stopUsingItem() here. EntityPlayer.stopUsingItem is client
+                // side only — it sends nothing, so it used to clear our own view
+                // of the block while the server carried on believing we were
+                // using the item, which is the MultiActionsA/E state exactly.
+                // runAttack now releases properly, a tick earlier, via
+                // PlayerControllerMP.onStoppedUsingItem, and refuses to reach
+                // here until the server has seen it.
 
                 if (ThreadLocalRandom.current().nextInt(100) >= 3
                         && mc.thePlayer.getDistanceToEntity(target) <= reach.getInput()) {
@@ -407,7 +447,19 @@ public class KillAura extends Module {
         leftDownTime = 0L;
         leftUpTime = 0L;
         ticksSinceAttack = 0;
+        unblockTicks = 0;
         releaseAuraUseItemState();
+    }
+
+    /**
+     * Hold the use-item key up regardless of whether the user is physically
+     * pressing it. {@code auraUseItemDown} is set so the normal release path
+     * still hands the key back to the physical state when the window ends.
+     */
+    private void forceUseItemUp() {
+        if (mc.gameSettings == null || mc.gameSettings.keyBindUseItem == null) return;
+        KeyBinding.setKeyBindState(mc.gameSettings.keyBindUseItem.getKeyCode(), false);
+        auraUseItemDown = true;
     }
 
     private void setAuraUseItemState(boolean pressed) {

@@ -269,17 +269,104 @@ public final class SilentAim {
     }
 
     /**
-     * Steer movement by the rotation that is going out on the wire.
+     * Steer movement by the reported yaw, but keep WASD pointing where the
+     * <i>camera</i> is facing.
      *
-     * <p>Unconditional, and it has to be: the server reconstructs the movement
-     * from the yaw in the packet. Walking on the camera yaw while sending the
-     * aim yaw is a guaranteed simulation mismatch. The visible cost is that WASD
-     * becomes relative to the aim rather than the camera while a module holds
-     * the rotation — that is inherent to silent aim, not a bug to toggle off.
+     * <p>The yaw override is not negotiable — the server rebuilds the position
+     * delta from the yaw in the packet, so walking on the camera yaw while
+     * sending the aim yaw is a guaranteed simulation mismatch. What <i>is</i>
+     * negotiable is which movement input we hand it. Previously we passed the
+     * user's raw input straight through, so WASD silently rotated with the aim:
+     * with the aim 60° off the camera, W walked 60° off course.
+     *
+     * <p>Instead, work out the world direction the input asked for in the camera
+     * frame, then pick the {@code (strafe, forward)} pair that comes closest to
+     * it in the reported-yaw frame. The candidates are exactly the eight vanilla
+     * key combinations, rescaled by the magnitude the caller already applied
+     * (0.98 walking, ×0.3 sneaking, ×0.2 using an item — both axes always carry
+     * the same factor, so one scalar preserves it). That matters: the server
+     * reconstructs movement by replaying those same nine combinations against
+     * the packet yaw, so anything off-grid would fail to rebuild. This stays on
+     * the grid, which is why it needs no "move fix" toggle and cannot desync.
+     *
+     * <p>ponytail: eight directions means the result can sit up to 22.5° off the
+     * direction asked for, and that ceiling is inherent — a rotated yaw simply
+     * has no other legal directions to offer. In practice the aim and the camera
+     * both point near the target, so the offset is small and the snap rarely
+     * bites. Sub-grid accuracy would need off-grid inputs, which is the desync
+     * this exists to avoid.
      */
     public static void applyToMove(MoveInputEvent e) {
         if (!active) return;
         e.setYaw(serverYaw);
+
+        float rawStrafe = e.getStrafe();
+        float rawForward = e.getForward();
+        float scale = Math.max(Math.abs(rawStrafe), Math.abs(rawForward));
+        if (scale <= 1.0E-4f) return;
+
+        double cam = Math.toRadians(cameraYaw);
+        double sinCam = Math.sin(cam), cosCam = Math.cos(cam);
+        double wantX = rawStrafe * cosCam - rawForward * sinCam;
+        double wantZ = rawForward * cosCam + rawStrafe * sinCam;
+        double wantLen = Math.sqrt(wantX * wantX + wantZ * wantZ);
+        if (wantLen <= 1.0E-6) return;
+        wantX /= wantLen;
+        wantZ /= wantLen;
+
+        double srv = Math.toRadians(serverYaw);
+        double sinSrv = Math.sin(srv), cosSrv = Math.cos(srv);
+
+        int bestF = 0, bestS = 0;
+        double bestDot = -Double.MAX_VALUE, heldDot = -Double.MAX_VALUE;
+        for (int fi = -1; fi <= 1; fi++) {
+            for (int si = -1; si <= 1; si++) {
+                if (fi == 0 && si == 0) continue;
+                double vx = si * cosSrv - fi * sinSrv;
+                double vz = fi * cosSrv + si * sinSrv;
+                double dot = (vx * wantX + vz * wantZ) / Math.sqrt(vx * vx + vz * vz);
+                if (dot > bestDot) { bestDot = dot; bestF = fi; bestS = si; }
+                if (fi == heldMoveF && si == heldMoveS) heldDot = dot;
+            }
+        }
+
+        // Hysteresis. The settle tremor jitters the reported yaw by a fraction of
+        // a degree, so a target sitting on a 45° boundary would otherwise flip
+        // between two directions every tick. Keep the previous choice until the
+        // new one is clearly better.
+        if (heldDot > -Double.MAX_VALUE && bestDot - heldDot < 0.04) {
+            bestF = heldMoveF;
+            bestS = heldMoveS;
+        }
+        heldMoveF = bestF;
+        heldMoveS = bestS;
+
+        e.setStrafe(bestS * scale);
+        e.setForward(bestF * scale);
+    }
+
+    /**
+     * Run the movement phase on the reported yaw. Called around
+     * {@code super.onLivingUpdate()} from the {@code EntityPlayerSP} mixin.
+     *
+     * <p>{@code moveFlying} is not the only consumer of the field —
+     * {@code EntityLivingBase.jump()} reads {@code rotationYaw} directly for the
+     * sprint-jump boost — so the whole phase is swapped rather than each call
+     * site patched. Stashing the camera yaw here is also what lets
+     * {@link #applyToMove} still know which way the user was facing.
+     */
+    public static void beginMovementPhase() {
+        if (!active || movementSwapped || mc.thePlayer == null) return;
+        cameraYaw = mc.thePlayer.rotationYaw;
+        mc.thePlayer.rotationYaw = serverYaw;
+        movementSwapped = true;
+    }
+
+    /** Undo {@link #beginMovementPhase}, restoring the camera yaw. */
+    public static void endMovementPhase() {
+        if (!movementSwapped || mc.thePlayer == null) return;
+        mc.thePlayer.rotationYaw = cameraYaw;
+        movementSwapped = false;
     }
 
     /**
@@ -350,6 +437,13 @@ public final class SilentAim {
     // Render-time pitch swap — see beginPlayerRender.
     private static boolean renderSwapped;
     private static float stashPitch, stashPrevPitch;
+
+    // Movement-phase yaw swap — see beginMovementPhase.
+    private static boolean movementSwapped;
+    private static float cameraYaw;
+
+    // Last movement grid direction handed to moveFlying — see applyToMove.
+    private static int heldMoveF, heldMoveS;
 
     /** Glide profile used to hand the rotation back to the camera. */
     private static final Request RETURN = new Request();
