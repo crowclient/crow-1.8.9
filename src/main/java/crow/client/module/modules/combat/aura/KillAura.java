@@ -421,8 +421,12 @@ public class KillAura extends Module {
                 // PlayerControllerMP.onStoppedUsingItem, and refuses to reach
                 // here until the server has seen it.
 
-                if (ThreadLocalRandom.current().nextInt(100) >= 3
-                        && mc.thePlayer.getDistanceToEntity(target) <= reach.getInput()) {
+                // No random whiff. There used to be a 3% chance of consuming the
+                // click and swinging at nothing, which costs real damage and buys
+                // nothing — the server cannot see a decision not to attack, only
+                // the packets, and a genuinely missed swing looks the same as a
+                // slightly late one.
+                if (mc.thePlayer.getDistanceToEntity(target) <= reach.getInput()) {
                     // Swing FIRST. Minecraft.clickMouse calls swingItem() before
                     // attackEntity(), so the wire order is C0A then C02. Sending
                     // C02 first is Grim's PacketOrderB — a vanilla client can
@@ -454,12 +458,34 @@ public class KillAura extends Module {
         }
         if (inBurst) delay = (long) (delay / burstMultiplier);
 
+        // Occasional slow click. This used to add 30-110ms one time in five,
+        // which is not a hesitation, it is a dropped click: 110ms on top of a
+        // 71ms interval is a momentary 5.5 CPS, and averaged out it cost well
+        // over a click per second. Humans are not that inconsistent.
         if (Utils.Java.rand().nextInt(100) >= 80) {
-            delay += 30L + Utils.Java.rand().nextInt(80);
+            delay += 5L + Utils.Java.rand().nextInt(20);
         }
 
-        leftUpTime = System.currentTimeMillis() + delay;
-        leftDownTime = System.currentTimeMillis() + (delay / 2L) - Utils.Java.rand().nextInt(10);
+        // Anchor the next click to the previous scheduled one, not to now.
+        //
+        // Anchoring to now silently quantised every interval up to the next tick
+        // boundary: the click fires on the first tick at or after the deadline,
+        // and the following deadline was then measured from that tick. A 71ms
+        // target (14 CPS) became a flat 100ms, so every setting above 10 CPS
+        // collapsed to exactly 10 and no slider position could do anything about
+        // it. Advancing from the schedule lets the error cancel instead of
+        // accumulating — intervals alternate around the target and the average
+        // comes out right, which is also what a real clicker looks like through
+        // 20 TPS packets.
+        long now = System.currentTimeMillis();
+        long base = leftUpTime > 0L ? leftUpTime : now;
+        // Never bank more than one click's worth of catch-up, so a lag spike or
+        // a spell out of range resumes at the normal rate instead of firing a
+        // burst to "make up" for it.
+        if (base < now - delay) base = now - delay;
+
+        leftUpTime = base + delay;
+        leftDownTime = leftUpTime - (delay / 2L) - Utils.Java.rand().nextInt(10);
     }
 
     private boolean consumeTeleportReset() {
