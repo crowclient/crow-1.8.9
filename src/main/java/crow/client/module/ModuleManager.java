@@ -111,6 +111,7 @@ import crow.client.module.modules.themes.ThemeLavender;
 import crow.client.module.modules.themes.ThemeMint;
 import crow.client.module.modules.themes.ThemeOcean;
 import crow.client.module.modules.themes.ThemePink;
+import crow.client.module.modules.themes.ThemePeriwinkle;
 import crow.client.module.modules.themes.ThemeRainbow;
 import crow.client.module.modules.themes.ThemeSapphire;
 import crow.client.module.modules.themes.ThemeSunset;
@@ -156,6 +157,7 @@ public class ModuleManager {
         addModule(new Reach());
         addModule(new Velocity());
         addModule(new JumpReset());
+        addModule(new WTap());
         addModule(new LeftClicker());
         addModule(new RightClicker());
         addModule(new AimAssist());
@@ -167,7 +169,7 @@ public class ModuleManager {
         addModule(new AutoRod());
         addModule(new BlockIn());
         addModule(new BlockHit());
-        addModule(new Clutch().withHidden(true));
+        addModule(new Clutch());
         addModule(new AntiFireball());
 
         addModule(new PlayerESP());
@@ -229,6 +231,7 @@ public class ModuleManager {
         addModule(new FakeHud().withHidden(true));
         addModule(new RecordingMode().withHidden(true));
 
+        addModule(new ThemePeriwinkle());
         addModule(new ThemeRainbow());
         addModule(new ThemePink());
         addModule(new ThemeOcean());
@@ -347,11 +350,15 @@ public class ModuleManager {
 
     public void addModule(Module m) {
         modules.add(m);
+        byClazz.put(m.getClass(), m);
+        mergedCache = null;
     }
 
     public void removeModuleByName(String s) {
         Module m = getModuleByName(s);
         modules.remove(m);
+        if (m != null) byClazz.remove(m.getClass());
+        mergedCache = null;
     }
 
     public Module getModuleByName(String name) {
@@ -364,26 +371,49 @@ public class ModuleManager {
         return null;
     }
 
+    // ponytail: AntiBot.renderBot() called this once per player per frame, and it
+    // was a linear scan of ~150 modules. On a full lobby that's millions of
+    // comparisons a second. Map lookup instead — populated in addModule().
+    private final java.util.Map<Class<?>, Module> byClazz = new java.util.HashMap<>();
+
     public Module getModuleByClazz(Class<? extends Module> c) {
         if (!initialized)
             return null;
 
-        for (Module module : modules)
-			if (module.getClass().equals(c))
-                return module;
-        return null;
+        return byClazz.get(c);
     }
 
+    // ponytail: getModules() merged ~150 modules into a throwaway ArrayList on
+    // every call, and it's called every tick and every frame. The three source
+    // lists only change when a module is added or removed, so cache the merge
+    // and invalidate on a size change.
+    private List<Module> mergedCache;
+    private int mergedCacheSize = -1;
+
     public List<Module> getModules() {
-        ArrayList<Module> allModules = new ArrayList<>(modules);
+        List<? extends Module> cfg = null;
+        List<? extends Module> gui = null;
         try {
-            allModules.addAll(Crow.configManager.configModuleManager.getConfigModules());
+            cfg = Crow.configManager.configModuleManager.getConfigModules();
         } catch (NullPointerException ignored) {
         }
         try {
-            allModules.addAll(guiModuleManager.getModules());
+            gui = guiModuleManager.getModules();
         } catch (NullPointerException ignored) {
         }
+
+        int size = modules.size() + (cfg == null ? 0 : cfg.size()) + (gui == null ? 0 : gui.size());
+        if (mergedCache != null && mergedCacheSize == size) {
+            return mergedCache;
+        }
+
+        ArrayList<Module> allModules = new ArrayList<>(size);
+        allModules.addAll(modules);
+        if (cfg != null) allModules.addAll(cfg);
+        if (gui != null) allModules.addAll(gui);
+
+        mergedCache = allModules;
+        mergedCacheSize = size;
         return allModules;
     }
 
@@ -410,12 +440,60 @@ public class ModuleManager {
     public List<Module> getModulesInCategory(Module.ModuleCategory categ) {
         ArrayList<Module> modulesOfCat = new ArrayList<>();
 
-        for (Module mod : getModules())
-			if (mod.moduleCategory().equals(categ))
-				if (!mod.isHidden() || Module.revealHiddenModules)
-					modulesOfCat.add(mod);
+        addMatching(modules, categ, modulesOfCat);
+        try {
+            addMatching(Crow.configManager.configModuleManager.getConfigModules(), categ, modulesOfCat);
+        } catch (NullPointerException ignored) {
+        }
+        try {
+            addMatching(guiModuleManager.getModules(), categ, modulesOfCat);
+        } catch (NullPointerException ignored) {
+        }
 
         return modulesOfCat;
+    }
+
+    // ponytail: filter the three source lists directly instead of going through
+    // getModules(), which merges all ~150 modules into a throwaway ArrayList
+    // first. An open ClickGui calls this once per category per frame.
+    private static void addMatching(List<? extends Module> src,
+                                    Module.ModuleCategory categ,
+                                    List<Module> out) {
+        if (src == null) return;
+        for (int i = 0; i < src.size(); i++) {
+            Module mod = src.get(i);
+            if (mod.moduleCategory().equals(categ)
+                    && (!mod.isHidden() || Module.revealHiddenModules)) {
+                out.add(mod);
+            }
+        }
+    }
+
+    public void activateDefaultModules() {
+        for (Module module : modules) {
+            module.activateDefaultState();
+        }
+    }
+
+    public void ensureDefaultTheme() {
+        if (!initialized) {
+            return;
+        }
+
+        for (Module module : modules) {
+            if (module.moduleCategory() == ModuleCategory.themes && module.isEnabled()) {
+                return;
+            }
+        }
+
+        // Periwinkle rather than Rainbow: the accent is used as a full-row
+        // flood for enabled modules, and a colour that cycles while you read
+        // the list works against the one thing that list has to do.
+        Module fallback = getModuleByClazz(ThemePeriwinkle.class);
+        if (fallback == null) fallback = getModuleByClazz(ThemeRainbow.class);
+        if (fallback != null) {
+            fallback.enable();
+        }
     }
 
     public void sort() {

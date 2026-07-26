@@ -53,6 +53,21 @@ public class PlayerESP extends Module {
     private static final IntBuffer   VIEWPORT   = BufferUtils.createIntBuffer(16);
     private static final FloatBuffer RESULT     = BufferUtils.createFloatBuffer(3);
 
+    /** Reused 8×(x,y,z) box corners, flat. Render thread only. */
+    private static final double[] CORNERS = new double[24];
+
+    private static void fillCorners(double[] c, double rx, double ry, double rz, double hw, double ph) {
+        double x0 = rx - hw, x1 = rx + hw, z0 = rz - hw, z1 = rz + hw, y1 = ry + ph;
+        c[0]  = x0; c[1]  = ry; c[2]  = z0;
+        c[3]  = x0; c[4]  = ry; c[5]  = z1;
+        c[6]  = x1; c[7]  = ry; c[8]  = z0;
+        c[9]  = x1; c[10] = ry; c[11] = z1;
+        c[12] = x0; c[13] = y1; c[14] = z0;
+        c[15] = x0; c[16] = y1; c[17] = z1;
+        c[18] = x1; c[19] = y1; c[20] = z0;
+        c[21] = x1; c[22] = y1; c[23] = z1;
+    }
+
     private static class ScreenBox {
         final float minX, minY, maxX, maxY;
         final int color;
@@ -116,7 +131,10 @@ public class PlayerESP extends Module {
             for (EntityPlayer player : mc.theWorld.playerEntities) {
                 if (player == mc.thePlayer || player.deathTime != 0) continue;
                 if (!showInvis.isToggled() && player.isInvisible()) continue;
-                if (filterNPCs.isToggled() && player.getDisplayNameString().toLowerCase().startsWith("npc")) continue;
+                // ponytail: regionMatches ignore-case instead of allocating a
+                // lowercased copy of every player's name every frame.
+                if (filterNPCs.isToggled()
+                        && player.getDisplayNameString().regionMatches(true, 0, "npc", 0, 3)) continue;
                 if (AntiBot.renderBot(player)) continue;
                 int color = rainbow.isToggled()
                         ? ClickGui.getRainbowAtX((int) player.posX * 50) : (espColor | 0xFF000000);
@@ -131,7 +149,7 @@ public class PlayerESP extends Module {
         GL11.glGetFloat(GL11.GL_PROJECTION_MATRIX, PROJECTION);
         GL11.glGetInteger(GL11.GL_VIEWPORT, VIEWPORT);
 
-        ScaledResolution sr = new ScaledResolution(mc);
+        ScaledResolution sr = crow.client.utils.RenderUtils.scaled();
         int scaleFactor = sr.getScaleFactor();
 
         for (EntityPlayer player : mc.theWorld.playerEntities) {
@@ -152,21 +170,18 @@ public class PlayerESP extends Module {
             double hw = player.width / 2.0 + expand.getInput() * 0.3;
             double ph = player.height + expand.getInput() * 0.2;
 
-            double[][] corners = {
-                    {rx - hw, ry,      rz - hw}, {rx - hw, ry,      rz + hw},
-                    {rx + hw, ry,      rz - hw}, {rx + hw, ry,      rz + hw},
-                    {rx - hw, ry + ph, rz - hw}, {rx - hw, ry + ph, rz + hw},
-                    {rx + hw, ry + ph, rz - hw}, {rx + hw, ry + ph, rz + hw},
-            };
+            // ponytail: the corner list used to be a fresh double[8][3] — nine
+            // allocations per player per frame. Flat, reused, filled in place.
+            fillCorners(CORNERS, rx, ry, rz, hw, ph);
 
             float minX = Float.MAX_VALUE,  minY = Float.MAX_VALUE;
             float maxX = -Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
             boolean anyVisible = false;
 
-            for (double[] c : corners) {
+            for (int ci = 0; ci < 24; ci += 3) {
 
                 MODEL_VIEW.rewind(); PROJECTION.rewind(); VIEWPORT.rewind(); RESULT.rewind();
-                boolean ok = GLU.gluProject((float) c[0], (float) c[1], (float) c[2],
+                boolean ok = GLU.gluProject((float) CORNERS[ci], (float) CORNERS[ci + 1], (float) CORNERS[ci + 2],
                         MODEL_VIEW, PROJECTION, VIEWPORT, RESULT);
                 if (!ok) continue;
 
@@ -319,14 +334,17 @@ public class PlayerESP extends Module {
         int barHeight = bottom - top;
         int filled    = (int) (barHeight * healthRatio);
 
+        float r = barWidth / 2.0F;
         if (outline.isToggled()) {
-            Gui.drawRect(barX - 1, top - 1, barX + barWidth + 1, bottom + 1, 0xFF000000);
+            RenderUtils.drawRoundedRectAA(barX - 1, top - 1, barX + barWidth + 1, bottom + 1, r + 1, 0xFF000000);
         }
-        Gui.drawRect(barX, top, barX + barWidth, bottom, 0xFF222222);
+        RenderUtils.drawRoundedRectAA(barX, top, barX + barWidth, bottom, r, 0xC0161920);
 
         int red       = (int) (255 * (1.0F - healthRatio));
         int green     = (int) (255 * healthRatio);
         int fillColor = 0xFF000000 | (red << 16) | (green << 8);
-        Gui.drawRect(barX, bottom - filled, barX + barWidth, bottom, fillColor);
+        if (filled > 0) {
+            RenderUtils.drawRoundedRectAA(barX, bottom - Math.max(filled, barWidth), barX + barWidth, bottom, r, fillColor);
+        }
     }
 }

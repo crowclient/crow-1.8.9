@@ -117,7 +117,7 @@ public class CustomHotbar extends Module {
         float dt = Math.min(0.1F, (now - lastFrameMs) / 1000.0F);
         lastFrameMs = now;
 
-        ScaledResolution sr = new ScaledResolution(mc);
+        ScaledResolution sr = crow.client.utils.RenderUtils.scaled();
         int   screenW    = sr.getScaledWidth();
         int   screenH    = sr.getScaledHeight();
         float uiScale    = (float) scale.getInput();
@@ -160,9 +160,10 @@ public class CustomHotbar extends Module {
             mc.entityRenderer.setupOverlayRendering();
         }
 
-        int bgAlpha = (int) (opacityVal * 216);
+        int bgAlpha = (int) (opacityVal * 190);
         int bgColor = (bgAlpha << 24) | 0x101318;
-        RenderUtils.drawRoundedRectAA(barX, barY, barX + barWidth, barY + barHeight, cornerR, bgColor);
+        RenderUtils.drawGlassPanel(barX, barY, barX + barWidth, barY + barHeight, cornerR, bgColor,
+                HUD.dropShadow == null || HUD.dropShadow.isToggled() ? RenderUtils.GLASS_SHADOW_CHROME : 0);
 
         int themeColor  = GuiModule.getThemeColor(0);
         int accentAlpha = (int) (opacityVal * 80);

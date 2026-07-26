@@ -2,13 +2,19 @@ package crow.client.module.modules.render;
 
 import com.google.common.eventbus.Subscribe;
 
+import org.lwjgl.BufferUtils;
 import org.lwjgl.input.Mouse;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.util.glu.GLU;
+
+import java.nio.FloatBuffer;
+import java.nio.IntBuffer;
 
 import crow.client.event.impl.ForgeEvent;
 import crow.client.event.impl.Render2DEvent;
 import crow.client.main.Crow;
 import crow.client.module.Module;
+import crow.client.module.modules.HUD;
 import crow.client.module.modules.client.GuiModule;
 import crow.client.module.modules.other.NameHider;
 import crow.client.module.setting.impl.ComboSetting;
@@ -24,9 +30,45 @@ import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.util.MathHelper;
 import net.minecraft.util.ResourceLocation;
+import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.event.entity.player.AttackEntityEvent;
 
 public class TargetHUD extends Module {
+
+    /** Opaque-equivalent base for HUD panel fills. Everything multiplies this
+     *  by the opacity setting and the fade, so lowering it here makes every
+     *  layout translucent at once. Blur is off by default on the HUD, so this
+     *  show-through plus the rim and shadow is what reads as glass. */
+    private static final float GLASS_ALPHA = 196.0F;
+
+    /* Drop shadow. Wide and weak on purpose: the HUD floats over the world
+     * with nothing behind it, so a tight shadow just traces a dark outline of
+     * the panel instead of reading as depth. These are paired values — raising
+     * the alpha without raising the blur brings the hard rim straight back. */
+    private static final float SHADOW_ALPHA = 0x4A;
+    private static final float SHADOW_Y     = 5.0F;
+    private static final float SHADOW_BLUR  = 12.0F;
+
+    /**
+     * The one panel material every layout draws its background with.
+     *
+     * <p>Both the fill and the shadow are scaled by the reveal fade and the
+     * opacity slider. That coupling is the point: a fixed-alpha shadow leaves
+     * a dark blob hanging in the air under a panel that has already faded out,
+     * and at low opacity it shows through the glass as a grey smear.
+     *
+     * @param rgb      0xRRGGBB fill, alpha supplied here
+     * @param alphaMul per-style fill multiplier (Glass runs thinner)
+     */
+    private void panelBg(float x, float y, float x1, float y1,
+                         float radius, int rgb, float alphaMul) {
+        float reveal = fadeAlpha * (float) opacity.getInput();
+        int fillA = (int) (GLASS_ALPHA * reveal * alphaMul);
+        if (fillA <= 0) return;
+        boolean shadow = HUD.dropShadow == null || HUD.dropShadow.isToggled();
+        RenderUtils.drawGlassPanel(x, y, x1, y1, radius, (fillA << 24) | rgb,
+                shadow ? (int) (SHADOW_ALPHA * reveal) : 0, SHADOW_Y, SHADOW_BLUR);
+    }
 
     public static SliderSetting posXOffset, posYOffset, timeout, opacity, scale;
     public static TickSetting customFont;
@@ -126,6 +168,16 @@ public class TargetHUD extends Module {
     private boolean dragging;
     private int     dragOffsetX, dragOffsetY;
 
+    /* World-to-screen state for the Follow option. Populated from the
+     * 3D render pass (RenderWorldLastEvent) so the matrices are still
+     * the world's, not the 2D overlay's. Read in onRender2d. */
+    private static final FloatBuffer MV  = BufferUtils.createFloatBuffer(16);
+    private static final FloatBuffer PR  = BufferUtils.createFloatBuffer(16);
+    private static final IntBuffer   VP  = BufferUtils.createIntBuffer(16);
+    private static final FloatBuffer OUT = BufferUtils.createFloatBuffer(3);
+    private float   followScreenX, followScreenY;
+    private boolean followValid;
+
     public TargetHUD() {
         super("Target HUD", ModuleCategory.render);
 
@@ -152,7 +204,64 @@ public class TargetHUD extends Module {
                 target = (AbstractClientPlayer) e.target;
                 lastTargetTime = System.currentTimeMillis();
             }
+            return;
         }
+
+        // World-pass: project the current target's position into screen
+        // space and stash it. Only does work if Follow is on and we have
+        // a real target — saves a glGet call every frame otherwise.
+        if (fe.getEvent() instanceof RenderWorldLastEvent
+                && followPlayer != null && followPlayer.isToggled()
+                && target != null && target != mc.thePlayer
+                && Utils.Player.isPlayerInGame()) {
+            updateFollowProjection(((RenderWorldLastEvent) fe.getEvent()).partialTicks);
+        }
+    }
+
+    /** Capture the modelview/projection matrices from the live 3D pass
+     *  and project the target's world position to virtual screen space.
+     *  Stores the result in {@link #followScreenX}/{@link #followScreenY};
+     *  sets {@link #followValid} to true if the projection landed inside
+     *  the visible depth range (i.e. the target isn't behind the camera
+     *  or clipped). */
+    private void updateFollowProjection(float partialTicks) {
+        followValid = false;
+        if (target == null) return;
+
+        double vx = mc.getRenderManager().viewerPosX;
+        double vy = mc.getRenderManager().viewerPosY;
+        double vz = mc.getRenderManager().viewerPosZ;
+        double x = target.lastTickPosX + (target.posX - target.lastTickPosX) * partialTicks - vx;
+        double y = target.lastTickPosY + (target.posY - target.lastTickPosY) * partialTicks - vy;
+        double z = target.lastTickPosZ + (target.posZ - target.lastTickPosZ) * partialTicks - vz;
+
+        // Pick the projection's Y origin based on which side the HUD
+        // should hang off — above the head, on either flank, or chest-
+        // height centered.
+        FollowPosition fp = (FollowPosition) followPosition.getMode();
+        double projY;
+        switch (fp) {
+            case Above: projY = y + target.height + 0.30; break;
+            case Chest: projY = y + target.height * 0.55; break;
+            case Left:
+            case Right:
+            default:    projY = y + target.height * 0.60; break;
+        }
+
+        MV.rewind(); PR.rewind(); VP.rewind(); OUT.rewind();
+        GL11.glGetFloat(GL11.GL_MODELVIEW_MATRIX, MV);
+        GL11.glGetFloat(GL11.GL_PROJECTION_MATRIX, PR);
+        GL11.glGetInteger(GL11.GL_VIEWPORT, VP);
+
+        if (!GLU.gluProject((float) x, (float) projY, (float) z,
+                MV, PR, VP, OUT)) return;
+        float depth = OUT.get(2);
+        if (depth < 0.0F || depth > 1.0F) return;
+
+        int sf = Math.max(1, crow.client.utils.RenderUtils.scaled().getScaleFactor());
+        followScreenX = OUT.get(0) / sf;
+        followScreenY = (VP.get(3) - OUT.get(1)) / sf;
+        followValid = true;
     }
 
     @Subscribe
@@ -164,29 +273,82 @@ public class TargetHUD extends Module {
         if (!updateFade()) return;
         if (target == null) return;
 
-        ScaledResolution sr = new ScaledResolution(mc);
+        ScaledResolution sr = crow.client.utils.RenderUtils.scaled();
         int screenW = sr.getScaledWidth();
         int screenH = sr.getScaledHeight();
 
         float s = (float) scale.getInput();
-
-        float bounceScale = s * fadeAlpha;
-        int anchorX = screenW / 2 + (int) posXOffset.getInput();
-        int anchorY = screenH / 2 + (int) posYOffset.getInput();
 
         StyleParams style = styleParams();
         HudStyle styleEnum = (HudStyle) hudStyle.getMode();
         int hitW = panelHitWidth(styleEnum, style);
         int hitH = panelHitHeight(styleEnum, style);
 
-        handleDragging(screenW, screenH, anchorX, anchorY, hitW, hitH);
+        // Pick the panel anchor. Follow mode pins the HUD to the target's
+        // projected screen position with a per-side offset; otherwise we
+        // use the user's draggable XY offset from screen center.
+        int anchorX, anchorY;
+        boolean usingFollow = followPlayer.isToggled()
+                && target != mc.thePlayer
+                && followValid;
+        if (usingFollow) {
+            FollowPosition fp = (FollowPosition) followPosition.getMode();
+            int margin = 12;
+            switch (fp) {
+                case Left:
+                    anchorX = Math.round(followScreenX) - hitW - margin;
+                    anchorY = Math.round(followScreenY) - hitH / 2;
+                    break;
+                case Right:
+                    anchorX = Math.round(followScreenX) + margin;
+                    anchorY = Math.round(followScreenY) - hitH / 2;
+                    break;
+                case Chest:
+                    anchorX = Math.round(followScreenX) - hitW / 2;
+                    anchorY = Math.round(followScreenY) - hitH / 2;
+                    break;
+                case Above:
+                default:
+                    anchorX = Math.round(followScreenX) - hitW / 2;
+                    anchorY = Math.round(followScreenY) - hitH - margin;
+                    break;
+            }
+            // Keep the panel on-screen even when the target is near an edge.
+            anchorX = MathHelper.clamp_int(anchorX, 2, screenW - hitW - 2);
+            anchorY = MathHelper.clamp_int(anchorY, 2, screenH - hitH - 2);
+        } else if (followPlayer.isToggled() && target != mc.thePlayer) {
+            // Follow is on but the target isn't on-screen (behind camera,
+            // clipped, etc). Don't draw a stale HUD floating at the center.
+            GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+            return;
+        } else {
+            anchorX = screenW / 2 + (int) posXOffset.getInput();
+            anchorY = screenH / 2 + (int) posYOffset.getInput();
+        }
+
+        // Dragging only makes sense when the HUD is free-floating. When
+        // following the target, the position is driven by projection.
+        if (!usingFollow) {
+            handleDragging(screenW, screenH, anchorX, anchorY, hitW, hitH);
+        } else {
+            dragging = false;
+        }
         updateHealth();
         updateHurtState();
 
+        // Reveal pops from 92% about the panel's centre. Scaling from zero
+        // about the top-left corner (the old behaviour) read as the HUD being
+        // sucked into its own anchor, and because the shadow shader derives its
+        // blur radius from the live modelview it also crushed the blur to
+        // sub-pixel on the way in — the hard black rim on every fade.
+        float bounceScale = s * (0.92F + 0.08F * fadeAlpha);
+        float pivotX = anchorX + hitW / 2.0F;
+        float pivotY = anchorY + hitH / 2.0F;
+
         GlStateManager.pushMatrix();
-        GlStateManager.translate(anchorX, anchorY, 0);
+        GlStateManager.translate(pivotX, pivotY, 0);
         GlStateManager.scale(bounceScale, bounceScale, 1.0F);
-        GlStateManager.translate(-anchorX, -anchorY, 0);
+        GlStateManager.translate(-pivotX, -pivotY, 0);
 
         switch (styleEnum) {
             case Glass:   drawGlassLayout(anchorX, anchorY);   break;
@@ -209,11 +371,8 @@ public class TargetHUD extends Module {
     }
 
     private void drawPanel(int x, int y, StyleParams p) {
-        int alphaByte = (int) (255.0F * (float) opacity.getInput() * fadeAlpha * p.bgAlphaMul);
-
-        if (p.showBg && alphaByte > 0) {
-            int bgColor = (alphaByte << 24) | 0x101013;
-            RenderUtils.drawRoundedRectAA(x, y, x + p.panelW, y + p.panelH, p.cardR, bgColor);
+        if (p.showBg) {
+            panelBg(x, y, x + p.panelW, y + p.panelH, p.cardR, 0x101013, p.bgAlphaMul);
             if (p.accent) {
                 int accentA = (int) (fadeAlpha * 255.0F);
                 int accentCol = (accentA << 24) | (GuiModule.getThemeColor(0) & 0x00FFFFFF);
@@ -256,7 +415,10 @@ public class TargetHUD extends Module {
         int trackColor = ((int) (fadeAlpha * 64.0F) << 24) | 0xF4F6FA;
         if (p.showBar && barW > 0) {
             RenderUtils.drawRoundedRectAA(barX, barY, barX + barW, barY + p.barH, barR, trackColor);
-            int fillW = (int) (barW * MathHelper.clamp_float(displayedHealth / maxHealth, 0.0F, 1.0F));
+            // Sub-pixel width: the SDF fill antialiases its own edge, so a
+            // float here makes the bar glide instead of stepping a pixel at a
+            // time as health drains.
+            float fillW = barW * MathHelper.clamp_float(displayedHealth / maxHealth, 0.0F, 1.0F);
             if (fillW > 1) {
                 RenderUtils.drawRoundedRectAA(barX, barY, barX + fillW, barY + p.barH, barR,
                         getBarFillColor(fadeAlpha));
@@ -276,11 +438,7 @@ public class TargetHUD extends Module {
     /** Vertical layout: big head on top, name + HP centered below. */
     private void drawCardLayout(int x, int y) {
         final int panelW = 110, panelH = 132, headSize = 64;
-        int alphaByte = (int) (255.0F * (float) opacity.getInput() * fadeAlpha);
-        if (alphaByte > 0) {
-            int bgColor = (alphaByte << 24) | 0x101013;
-            RenderUtils.drawRoundedRectAA(x, y, x + panelW, y + panelH, 12.0F, bgColor);
-        }
+        panelBg(x, y, x + panelW, y + panelH, 12.0F, 0x101013, 1.0F);
         int headX = x + (panelW - headSize) / 2;
         int headY = y + 10;
         drawHead(headX, headY, headSize);
@@ -302,7 +460,7 @@ public class TargetHUD extends Module {
         int barX = x + 10, barY = (int) (nameY + 14), barW = panelW - 20, barH = 4;
         int trackColor = ((int) (fadeAlpha * 64.0F) << 24) | 0xF4F6FA;
         RenderUtils.drawRoundedRectAA(barX, barY, barX + barW, barY + barH, 2.0F, trackColor);
-        int fillW = (int) (barW * MathHelper.clamp_float(displayedHealth / maxHealth, 0.0F, 1.0F));
+        float fillW = barW * MathHelper.clamp_float(displayedHealth / maxHealth, 0.0F, 1.0F);
         if (fillW > 1) {
             RenderUtils.drawRoundedRectAA(barX, barY, barX + fillW, barY + barH, 2.0F,
                     getBarFillColor(fadeAlpha));
@@ -324,11 +482,7 @@ public class TargetHUD extends Module {
     /** Wide horizontal slim bar: tiny head, name + HP inline. */
     private void drawBarLayout(int x, int y) {
         final int panelW = 280, panelH = 26, headSize = 18;
-        int alphaByte = (int) (255.0F * (float) opacity.getInput() * fadeAlpha);
-        if (alphaByte > 0) {
-            int bgColor = (alphaByte << 24) | 0x101013;
-            RenderUtils.drawRoundedRectAA(x, y, x + panelW, y + panelH, 4.0F, bgColor);
-        }
+        panelBg(x, y, x + panelW, y + panelH, 8.0F, 0x101013, 1.0F);
         int headX = x + 4;
         int headY = y + (panelH - headSize) / 2;
         drawHead(headX, headY, headSize);
@@ -355,7 +509,7 @@ public class TargetHUD extends Module {
         if (barW < 20) barW = 20;
         int trackColor = ((int) (fadeAlpha * 64.0F) << 24) | 0xF4F6FA;
         RenderUtils.drawRoundedRectAA(barX, barY, barX + barW, barY + 3, 1.5F, trackColor);
-        int fillW = (int) (barW * MathHelper.clamp_float(displayedHealth / maxHealth, 0.0F, 1.0F));
+        float fillW = barW * MathHelper.clamp_float(displayedHealth / maxHealth, 0.0F, 1.0F);
         if (fillW > 1) {
             RenderUtils.drawRoundedRectAA(barX, barY, barX + fillW, barY + 3, 1.5F,
                     getBarFillColor(fadeAlpha));
@@ -388,16 +542,10 @@ public class TargetHUD extends Module {
         GUIBlurUtil.drawBlurredBackground(x, y, panelW, panelH, 6, 14, 0.6F * aMul);
         mc.entityRenderer.setupOverlayRendering();
 
-        // Translucent tint and bright top-edge highlight, like frosted glass.
-        int tintA = (int) (90 * aMul);
-        RenderUtils.drawRoundedRectAA(x, y, x + panelW, y + panelH, 14.0F,
-                (tintA << 24) | 0xF4F6FA);
-        int hiA = (int) (110 * aMul);
-        RenderUtils.drawRoundedRectAA(x + 8, y + 1, x + panelW - 8, y + 2, 0.5F,
-                (hiA << 24) | 0xFFFFFF);
-        int outA = (int) (80 * aMul);
-        RenderUtils.drawRoundedOutline(x, y, x + panelW, y + panelH, 14.0F, 1.0F,
-                (outA << 24) | 0xFFFFFF);
+        // Same dark smoked tint as every other panel — this layout's point is
+        // the real backdrop blur above, not a different colour. The rim and
+        // hairline come from the shared material.
+        panelBg(x, y, x + panelW, y + panelH, 14.0F, 0x0E1014, 0.72F);
 
         int headSize = 40;
         int headX = x + 10;
@@ -415,7 +563,7 @@ public class TargetHUD extends Module {
         int barX = textX, barY = y + 32, barW = panelW - (textX - x) - 12, barH = 4;
         RenderUtils.drawRoundedRectAA(barX, barY, barX + barW, barY + barH, 2.0F,
                 ((int) (fadeAlpha * 70.0F) << 24) | 0xF4F6FA);
-        int fillW = (int) (barW * MathHelper.clamp_float(displayedHealth / maxHP, 0.0F, 1.0F));
+        float fillW = barW * MathHelper.clamp_float(displayedHealth / maxHP, 0.0F, 1.0F);
         if (fillW > 1) {
             RenderUtils.drawRoundedRectAA(barX, barY, barX + fillW, barY + barH, 2.0F,
                     getBarFillColor(fadeAlpha));
@@ -430,18 +578,17 @@ public class TargetHUD extends Module {
     /** Modern: no head, theme-color stripe on the left, vertical info column. */
     private void drawModernLayout(int x, int y) {
         final int panelW = 156, panelH = 50;
-        int alphaByte = (int) (255.0F * (float) opacity.getInput() * fadeAlpha);
-        if (alphaByte > 0) {
-            RenderUtils.drawRoundedRectAA(x, y, x + panelW, y + panelH, 6.0F,
-                    (alphaByte << 24) | 0x0B0C10);
-        }
-        // Theme stripe fills the full height — bold left-side accent.
+        panelBg(x, y, x + panelW, y + panelH, 8.0F, 0x0B0C10, 1.0F);
+
+        // Theme stripe fills the full height — bold left-side accent. One
+        // antialiased two-stop fill, not a base rect plus a strip-tessellated
+        // gradient on top: that path insets its corners geometrically, so it
+        // stairsteps against the SDF panel underneath.
         int stripeA = (int) (fadeAlpha * 255.0F);
         int themeRgb = GuiModule.getThemeColor(0) & 0x00FFFFFF;
         RenderUtils.drawRoundedRectAA(x, y, x + 4, y + panelH, 2.0F,
-                (stripeA << 24) | themeRgb);
-        // Flowing gradient on top of the stripe for life.
-        RenderUtils.drawFlowingGradientRoundedRectVertical(x, y, x + 4, y + panelH, 2.0F, 200, 0);
+                (stripeA << 24) | themeRgb,
+                (stripeA << 24) | (GuiModule.getThemeColor(-140) & 0x00FFFFFF), null);
 
         boolean f = customFont.isToggled() && FontUtil.hasLoaded();
         int textX = x + 14;
@@ -454,7 +601,7 @@ public class TargetHUD extends Module {
         int barX = textX, barY = y + 28, barW = panelW - 24, barH = 3;
         RenderUtils.drawRoundedRectAA(barX, barY, barX + barW, barY + barH, 1.5F,
                 ((int) (fadeAlpha * 60.0F) << 24) | 0xF4F6FA);
-        int fillW = (int) (barW * MathHelper.clamp_float(displayedHealth / maxHP, 0.0F, 1.0F));
+        float fillW = barW * MathHelper.clamp_float(displayedHealth / maxHP, 0.0F, 1.0F);
         if (fillW > 1) {
             RenderUtils.drawRoundedRectAA(barX, barY, barX + fillW, barY + barH, 1.5F,
                     getBarFillColor(fadeAlpha));
@@ -469,18 +616,17 @@ public class TargetHUD extends Module {
     /** Exhibit: large, header strip with theme color, hearts row instead of bar. */
     private void drawExhibitLayout(int x, int y) {
         final int panelW = 240, panelH = 78;
-        int alphaByte = (int) (255.0F * (float) opacity.getInput() * fadeAlpha);
-        if (alphaByte > 0) {
-            RenderUtils.drawRoundedRectAA(x, y, x + panelW, y + panelH, 12.0F,
-                    (alphaByte << 24) | 0x101013);
-        }
-        // Theme-colored header strip across the top.
+        panelBg(x, y, x + panelW, y + panelH, 12.0F, 0x101013, 1.0F);
+
+        // Theme-colored header strip across the top. Two-stop AA fill rather
+        // than a flat rect plus a tessellated gradient — the strip path
+        // stairsteps the header's rounded top corners against the panel.
         int headerA = (int) (fadeAlpha * 200.0F);
         int themeRgb = GuiModule.getThemeColor(0) & 0x00FFFFFF;
         RenderUtils.drawRoundedRectAA(x, y, x + panelW, y + 18, 12.0F,
                 (headerA << 24) | themeRgb,
+                (headerA << 24) | (GuiModule.getThemeColor(-110) & 0x00FFFFFF),
                 new boolean[]{true, true, false, false});
-        RenderUtils.drawFlowingGradientRoundedRect(x, y, x + panelW, y + 18, 12.0F, 110, 0);
 
         // Name centered in header.
         boolean f = customFont.isToggled() && FontUtil.hasLoaded();
@@ -533,11 +679,7 @@ public class TargetHUD extends Module {
     private void drawPillLayout(int x, int y) {
         final int panelW = 200, panelH = 50;
         float cardR = panelH / 2.0F;
-        int alphaByte = (int) (255.0F * (float) opacity.getInput() * fadeAlpha);
-        if (alphaByte > 0) {
-            RenderUtils.drawRoundedRectAA(x, y, x + panelW, y + panelH, cardR,
-                    (alphaByte << 24) | 0x101013);
-        }
+        panelBg(x, y, x + panelW, y + panelH, cardR, 0x101013, 1.0F);
         int outA = (int) (fadeAlpha * 70.0F);
         RenderUtils.drawRoundedOutline(x, y, x + panelW, y + panelH, cardR, 1.0F,
                 (outA << 24) | 0xFFFFFF);
@@ -600,11 +742,7 @@ public class TargetHUD extends Module {
     /** Compact: tight panel, small head, name + HP only — no bar. */
     private void drawCompactLayout(int x, int y) {
         final int panelW = 140, panelH = 40;
-        int alphaByte = (int) (255.0F * (float) opacity.getInput() * fadeAlpha);
-        if (alphaByte > 0) {
-            RenderUtils.drawRoundedRectAA(x, y, x + panelW, y + panelH, 6.0F,
-                    (alphaByte << 24) | 0x101013);
-        }
+        panelBg(x, y, x + panelW, y + panelH, 9.0F, 0x101013, 1.0F);
         int headSize = 26;
         int headX = x + 6;
         int headY = y + (panelH - headSize) / 2;
@@ -704,64 +842,16 @@ public class TargetHUD extends Module {
         int gByte = MathHelper.clamp_int(Math.round(gb * 255.0F), 0, 255);
         int tint  = (aByte << 24) | (0xFF << 16) | (gByte << 8) | gByte;
 
-        if (RenderUtils.isTexturedRectShaderAvailable()) {
+        RenderUtils.drawRoundedTexturedRect(x, y, size, size, r,
+                 8f / 64f,  8f / 64f, 16f / 64f, 16f / 64f, tint);
 
-            RenderUtils.drawRoundedTexturedRect(x, y, size, size, r,
-                     8f / 64f,  8f / 64f, 16f / 64f, 16f / 64f, tint);
-
-            RenderUtils.drawRoundedTexturedRect(x, y, size, size, r,
-                    40f / 64f,  8f / 64f, 48f / 64f, 16f / 64f, tint);
-        } else {
-
-            GlStateManager.color(1.0F, gb, gb, headAlpha);
-            drawHeadFanFallback(x, y, size, r,  8f / 64f,  8f / 64f, 16f / 64f, 16f / 64f);
-            drawHeadFanFallback(x, y, size, r, 40f / 64f,  8f / 64f, 48f / 64f, 16f / 64f);
-        }
+        RenderUtils.drawRoundedTexturedRect(x, y, size, size, r,
+                40f / 64f,  8f / 64f, 48f / 64f, 16f / 64f, tint);
 
         GlStateManager.enableDepth();
         GlStateManager.enableCull();
         GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
         GlStateManager.popMatrix();
-    }
-
-    private void drawHeadFanFallback(int x, int y, int size, float r,
-                                     float u0, float v0, float u1, float v1) {
-        float xL = x, yT = y, xR = x + size, yB = y + size;
-        float cx = x + size * 0.5F, cy = y + size * 0.5F;
-        float uMid = (u0 + u1) * 0.5F, vMid = (v0 + v1) * 0.5F;
-        float uRange = u1 - u0, vRange = v1 - v0;
-        int seg = 16;
-
-        GL11.glBegin(GL11.GL_TRIANGLE_FAN);
-        GL11.glTexCoord2f(uMid, vMid);
-        GL11.glVertex2f(cx, cy);
-        emitArc(xR - r, yT + r, r, 270.0, 360.0, seg, xL, yT, size, size, u0, v0, uRange, vRange);
-        emitArc(xR - r, yB - r, r,   0.0,  90.0, seg, xL, yT, size, size, u0, v0, uRange, vRange);
-        emitArc(xL + r, yB - r, r,  90.0, 180.0, seg, xL, yT, size, size, u0, v0, uRange, vRange);
-        emitArc(xL + r, yT + r, r, 180.0, 270.0, seg, xL, yT, size, size, u0, v0, uRange, vRange);
-        emitVertex(xR - r, yT, xL, yT, size, size, u0, v0, uRange, vRange);
-        GL11.glEnd();
-    }
-
-    private void emitArc(float arcCx, float arcCy, float r,
-                         double startDeg, double endDeg, int segments,
-                         float bboxX, float bboxY, int bboxW, int bboxH,
-                         float u0, float v0, float uRange, float vRange) {
-        for (int i = 0; i <= segments; i++) {
-            double a = Math.toRadians(startDeg + (endDeg - startDeg) * i / segments);
-            float px = arcCx + (float) Math.cos(a) * r;
-            float py = arcCy + (float) Math.sin(a) * r;
-            emitVertex(px, py, bboxX, bboxY, bboxW, bboxH, u0, v0, uRange, vRange);
-        }
-    }
-
-    private void emitVertex(float px, float py,
-                            float bboxX, float bboxY, int bboxW, int bboxH,
-                            float u0, float v0, float uRange, float vRange) {
-        float u = u0 + ((px - bboxX) / bboxW) * uRange;
-        float v = v0 + ((py - bboxY) / bboxH) * vRange;
-        GL11.glTexCoord2f(u, v);
-        GL11.glVertex2f(px, py);
     }
 
     private void handleDragging(int screenW, int screenH, int hudX, int hudY, int hitW, int hitH) {

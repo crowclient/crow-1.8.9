@@ -18,11 +18,16 @@ import crow.client.utils.font.FontUtil;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.client.renderer.RenderHelper;
+import net.minecraft.client.renderer.Tessellator;
+import net.minecraft.client.renderer.WorldRenderer;
 import net.minecraft.client.renderer.entity.RenderItem;
+import net.minecraft.client.renderer.vertex.DefaultVertexFormats;
 import net.minecraft.client.settings.KeyBinding;
+import net.minecraft.client.shader.Framebuffer;
 import net.minecraft.item.ItemBlock;
 import net.minecraft.item.ItemStack;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL12;
 import org.lwjgl.input.Keyboard;
 
 public class Bridger extends Module {
@@ -52,6 +57,13 @@ public class Bridger extends Module {
     private long  hudLastFrameMs;
 
     private float hudDisplayedCount;
+
+    /** Offscreen target the 3D block icon is drawn into so we can blit
+     *  it back with our own alpha modulator. Native MC item rendering
+     *  resets glColor mid-draw, which is why we need this round-trip
+     *  rather than just multiplying our fade into the color directly. */
+    private Framebuffer iconFbo;
+    private static final int ICON_FBO_SIZE = 64;
 
     public Bridger() {
         super("Bridger", ModuleCategory.world);
@@ -313,46 +325,128 @@ public class Bridger extends Module {
     }
 
     private void renderBlockIcon(ItemStack stack, float x, float y, float size, float fadeAlpha) {
-        org.lwjgl.opengl.GL20.glUseProgram(0);
-        RenderItem ri = mc.getRenderItem();
-        float prevZLevel = ri.zLevel;
-        ri.zLevel = 100.0F;
+        // MC's RenderItem.renderItemModelIntoGUI calls glColor(1,1,1,1)
+        // mid-render, killing any fade alpha we set. To keep the full 3D
+        // block look AND a smooth fade, render the block into an offscreen
+        // framebuffer at full opacity, then blit that FBO's texture back
+        // onto the HUD as a textured quad with our alpha modulator.
+        try {
+            // Nothing else on the HUD may leave a program bound — the SDF
+            // rect shader that painted the pill restores it, GUIBlurUtil's
+            // does too, but neither is guaranteed on their error paths.
+            org.lwjgl.opengl.GL20.glUseProgram(0);
+            if (iconFbo == null) {
+                iconFbo = new Framebuffer(ICON_FBO_SIZE, ICON_FBO_SIZE, true);
+                iconFbo.setFramebufferFilter(GL11.GL_LINEAR);
+                // MC's Framebuffer defaults its clear color to (1, 1, 1, 0).
+                // With our pre-multiplied compositing on blit-back, that
+                // white RGB at zero alpha gets added straight onto the
+                // HUD, producing a white halo. Clear to fully transparent
+                // black instead — premultiplied math then leaves dst pixels
+                // untouched wherever the FBO is empty.
+                iconFbo.setFramebufferColor(0.0F, 0.0F, 0.0F, 0.0F);
+            }
+            // Remember the active framebuffer so we can restore it.
+            Framebuffer prevFbo = mc.getFramebuffer();
 
-        GlStateManager.pushMatrix();
-        GlStateManager.enableTexture2D();
-        GlStateManager.enableAlpha();
-        // Drop the alpha-test floor when fading so partially-transparent
-        // icon pixels survive the test instead of getting hard-clipped.
-        GlStateManager.alphaFunc(GL11.GL_GREATER, 0.02F);
-        GlStateManager.enableBlend();
-        GlStateManager.tryBlendFuncSeparate(
-                GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA,
-                GL11.GL_ONE,       GL11.GL_ZERO);
-        // Multiply icon RGB *and* alpha by the fade — RGB darkens, alpha
-        // fades. This works whether the GUI-item lighting path respects
-        // our alpha or just multiplies the RGB modulator into its output.
-        GlStateManager.color(fadeAlpha, fadeAlpha, fadeAlpha, fadeAlpha);
-        GlStateManager.enableDepth();
-        GlStateManager.depthMask(true);
-        GL11.glDepthFunc(GL11.GL_LEQUAL);
-        GlStateManager.enableRescaleNormal();
-        RenderHelper.enableGUIStandardItemLighting();
+            // --- Pass 1: 3D block into the icon FBO -----------------
+            iconFbo.framebufferClear();
+            iconFbo.bindFramebuffer(true);
 
-        float scale = size / 16.0F;
-        GlStateManager.translate(x, y, 0.0F);
-        GlStateManager.scale(scale, scale, 1.0F);
-        ri.renderItemIntoGUI(stack, 0, 0);
+            // Orthographic 16×16 projection so MC's standard "renderItemIntoGUI"
+            // (which assumes a 16-px slot) fits exactly into the FBO.
+            GlStateManager.matrixMode(GL11.GL_PROJECTION);
+            GlStateManager.pushMatrix();
+            GlStateManager.loadIdentity();
+            GlStateManager.ortho(0.0, 16.0, 16.0, 0.0, 1000.0, 3000.0);
+            GlStateManager.matrixMode(GL11.GL_MODELVIEW);
+            GlStateManager.pushMatrix();
+            GlStateManager.loadIdentity();
+            GlStateManager.translate(0.0F, 0.0F, -2000.0F);
 
-        RenderHelper.disableStandardItemLighting();
-        GlStateManager.disableRescaleNormal();
-        GlStateManager.disableDepth();
-        GlStateManager.disableLighting();
-        GlStateManager.alphaFunc(GL11.GL_GREATER, 0.1F);
-        ri.zLevel = prevZLevel;
-        GlStateManager.popMatrix();
+            RenderHelper.enableGUIStandardItemLighting();
+            GlStateManager.enableRescaleNormal();
+            GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+            GlStateManager.enableBlend();
+            // Critical: separate alpha blending so the destination's alpha
+            // channel ends up as a clean coverage mask (and the RGB ends
+            // up pre-multiplied). With the usual SRC_ALPHA/ONE_MINUS_SRC_ALPHA
+            // on both RGB and A, anti-aliased block edges would leave dark
+            // halos in the alpha channel — when blitted back over the HUD,
+            // that halo reads as a "weird outline."
+            GlStateManager.tryBlendFuncSeparate(
+                    GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA,
+                    GL11.GL_ONE,       GL11.GL_ONE_MINUS_SRC_ALPHA);
 
-        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
-        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+            RenderItem ri = mc.getRenderItem();
+            float prevZ = ri.zLevel;
+            ri.zLevel = 0.0F;
+            ri.renderItemIntoGUI(stack, 0, 0);
+            ri.zLevel = prevZ;
+
+            RenderHelper.disableStandardItemLighting();
+            GlStateManager.disableRescaleNormal();
+
+            GlStateManager.matrixMode(GL11.GL_PROJECTION);
+            GlStateManager.popMatrix();
+            GlStateManager.matrixMode(GL11.GL_MODELVIEW);
+            GlStateManager.popMatrix();
+
+            iconFbo.unbindFramebuffer();
+            // Restores the display-sized viewport too. The matrix push/pop
+            // pair above already restored both matrices, so calling
+            // setupOverlayRendering() here would only do harm: it
+            // loadIdentity's the modelview, dropping the caller's zoom
+            // transform so the icon and count draw unscaled while the pill
+            // behind them scales.
+            prevFbo.bindFramebuffer(true);
+
+            // --- Pass 2: blit FBO texture to HUD with our alpha -----
+            GlStateManager.enableTexture2D();
+            GlStateManager.disableLighting();
+            GlStateManager.disableDepth();
+            GlStateManager.enableBlend();
+            // Composite the FBO content with the pre-multiplied alpha
+            // equation. Because we modulate with glColor(k, k, k, k), both
+            // the pre-multiplied RGB and the alpha mask scale by `k`
+            // together — fading down to invisible without darkening the
+            // edges underneath.
+            GlStateManager.tryBlendFuncSeparate(
+                    GL11.GL_ONE, GL11.GL_ONE_MINUS_SRC_ALPHA,
+                    GL11.GL_ONE, GL11.GL_ONE_MINUS_SRC_ALPHA);
+            // GlStateManager.color() is cached and skips redundant calls, but
+            // plenty of HUD code (GUIBlurUtil, FontUtil) sets the real colour
+            // with a raw glColor4f. That leaves the cache reading (1,1,1,1)
+            // while GL actually holds an alpha below 1 — GUIBlurUtil's pill
+            // backdrop leaves 0.65 — and this quad is the one thing here that
+            // gets modulated by it, which is why the block came out slightly
+            // transparent. Two calls force the cache to miss.
+            GlStateManager.color(0.0F, 0.0F, 0.0F, 0.0F);
+            GlStateManager.color(fadeAlpha, fadeAlpha, fadeAlpha, fadeAlpha);
+
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, iconFbo.framebufferTexture);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL12.GL_CLAMP_TO_EDGE);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL12.GL_CLAMP_TO_EDGE);
+
+            // FBO texture origin is bottom-left, screen draws top-down,
+            // so the V coords flip.
+            Tessellator tess = Tessellator.getInstance();
+            WorldRenderer wr = tess.getWorldRenderer();
+            wr.begin(GL11.GL_QUADS, DefaultVertexFormats.POSITION_TEX);
+            wr.pos(x,        y + size, 0.0).tex(0.0, 0.0).endVertex();
+            wr.pos(x + size, y + size, 0.0).tex(1.0, 0.0).endVertex();
+            wr.pos(x + size, y,        0.0).tex(1.0, 1.0).endVertex();
+            wr.pos(x,        y,        0.0).tex(0.0, 1.0).endVertex();
+            tess.draw();
+
+            // Restore normal (non-premultiplied) blending for whatever
+            // renders next on the HUD.
+            GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+            GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        } catch (Throwable ignored) {
+        }
     }
 
     private static int clamp255(int v) { return v < 0 ? 0 : (v > 255 ? 255 : v); }

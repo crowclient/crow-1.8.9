@@ -121,7 +121,7 @@ public class Indicators extends Module {
 
         if (tracked.isEmpty()) return;
 
-        ScaledResolution sr = new ScaledResolution(mc);
+        ScaledResolution sr = crow.client.utils.RenderUtils.scaled();
         int screenW = sr.getScaledWidth();
         int screenH = sr.getScaledHeight();
         float centerX = screenW / 2.0F;

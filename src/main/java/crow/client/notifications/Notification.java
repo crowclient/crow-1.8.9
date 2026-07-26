@@ -19,7 +19,7 @@ public class Notification {
 
     static final int GAP = 4;
     private static final int ICON_SIZE = 12;
-    private static final int BG = 0x101115;
+    private static final int BG = 0x0E1014;
     private static final ResourceLocation ICON =
             RenderUtils.getResourcePath("/assets/crow/notification.png");
 
@@ -106,7 +106,7 @@ public class Notification {
 
     private int stackY(int stackIndex, int height, float anim) {
         Position pos = Notifications.getPosition();
-        ScaledResolution sr = new ScaledResolution(Minecraft.getMinecraft());
+        ScaledResolution sr = crow.client.utils.RenderUtils.scaled();
         switch (pos) {
             case BottomRight: {
                 int restY = sr.getScaledHeight() - 6 - (stackIndex + 1) * (height + GAP);
@@ -125,7 +125,7 @@ public class Notification {
 
     private int stackX(int width) {
         Position pos = Notifications.getPosition();
-        ScaledResolution sr = new ScaledResolution(Minecraft.getMinecraft());
+        ScaledResolution sr = crow.client.utils.RenderUtils.scaled();
         switch (pos) {
             case BottomRight:
             case TopRight:
@@ -152,28 +152,29 @@ public class Notification {
         int y = stackY(stackIndex, height, anim);
         int radius = 10;
 
-        int outerAlpha = (int) (0x60 * anim);
-        int innerAlpha = (int) (0xE6 * anim);
+        int innerAlpha = (int) (0xCE * anim);
 
-        if (Notifications.useBlur() && HUD.enableBlur != null && HUD.enableBlur.isToggled()) {
+        // Blur only the top card. Overlapping GUIBlurUtil calls capture each
+        // other's output, so a stack of them smears progressively.
+        if (stackIndex == 0 && Notifications.useBlur()
+                && HUD.enableBlur != null && HUD.enableBlur.isToggled()) {
             int br = HUD.blurRadius != null ? (int) HUD.blurRadius.getInput() : 5;
             GUIBlurUtil.drawBlurredBackground(x, y, width, height, br, radius, 0.5F);
             net.minecraft.client.Minecraft.getMinecraft().entityRenderer.setupOverlayRendering();
         }
 
-        RenderUtils.drawRoundedRectAA(x, y + 1, x + width, y + height + 1, radius, (outerAlpha << 24));
-        RenderUtils.drawRoundedRectAA(x, y, x + width, y + height, radius, (innerAlpha << 24) | BG);
+        RenderUtils.drawGlassPanel(x, y, x + width, y + height, radius,
+                (innerAlpha << 24) | BG,
+                (int) (RenderUtils.GLASS_SHADOW_RAISED * anim));
 
         if (ICON != null) {
-            Minecraft.getMinecraft().getTextureManager().bindTexture(ICON);
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
-            GL11.glColor4f(1.0F, 1.0F, 1.0F, anim);
+            RenderUtils.bindSmoothIcon(ICON);
+            int accent = accentColor();
+            GL11.glColor4f(((accent >> 16) & 0xFF) / 255.0F,
+                    ((accent >> 8) & 0xFF) / 255.0F,
+                    (accent & 0xFF) / 255.0F, anim);
             Gui.drawModalRectWithCustomSizedTexture(x + 10, y + (height - ICON_SIZE) / 2,
                     0, 0, ICON_SIZE, ICON_SIZE, ICON_SIZE, ICON_SIZE);
-
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_NEAREST);
-            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_NEAREST);
         }
 
         int titleAlpha = (int) (0xFF * anim);
@@ -215,8 +216,9 @@ public class Notification {
         int x = stackX(width);
         int y = stackY(stackIndex, height, anim);
 
-        int bgAlpha = (int) (0xDD * anim);
-        RenderUtils.drawRoundedRectAA(x, y, x + width, y + height, 4, (bgAlpha << 24) | 0x0D0F14);
+        int bgAlpha = (int) (0xC6 * anim);
+        RenderUtils.drawGlassPanel(x, y, x + width, y + height, 4, (bgAlpha << 24) | BG,
+                (int) (RenderUtils.GLASS_SHADOW_RAISED * anim));
 
         int accent = accentColor();
         int barA = (int) (0xFF * anim);
@@ -253,15 +255,17 @@ public class Notification {
         int x = stackX(width);
         int y = stackY(stackIndex, height, anim);
 
-        int bgAlpha = (int) (0xEE * anim);
+        int bgAlpha = (int) (0xCE * anim);
 
-        if (Notifications.useBlur() && HUD.enableBlur != null && HUD.enableBlur.isToggled()) {
+        if (stackIndex == 0 && Notifications.useBlur()
+                && HUD.enableBlur != null && HUD.enableBlur.isToggled()) {
             int br = HUD.blurRadius != null ? (int) HUD.blurRadius.getInput() : 5;
             GUIBlurUtil.drawBlurredBackground(x, y, width, height, br, 3, 0.5F);
             net.minecraft.client.Minecraft.getMinecraft().entityRenderer.setupOverlayRendering();
         }
 
-        RenderUtils.drawRoundedRectAA(x, y, x + width, y + height, 3, (bgAlpha << 24) | 0x111217);
+        RenderUtils.drawGlassPanel(x, y, x + width, y + height, 3, (bgAlpha << 24) | BG,
+                (int) (RenderUtils.GLASS_SHADOW_RAISED * anim));
 
         if (Notifications.useAccentBar()) {
             int accent = accentColor();
@@ -313,10 +317,9 @@ public class Notification {
         int y = stackY(stackIndex, height, anim);
         int radius = height / 2;
 
-        int bgAlpha = (int) (0xDD * anim);
-        RenderUtils.drawRoundedRectAA(x, y, x + width, y + height, radius, (bgAlpha << 24) | 0x111217);
-        RenderUtils.drawRoundedOutline(x, y, x + width, y + height, radius, 0.5F,
-                ((int) (0x30 * anim) << 24) | 0xFFFFFF);
+        int bgAlpha = (int) (0xC6 * anim);
+        RenderUtils.drawGlassPanel(x, y, x + width, y + height, radius, (bgAlpha << 24) | BG,
+                (int) (RenderUtils.GLASS_SHADOW_RAISED * anim));
 
         int accent = accentColor();
         int dotA = (int) (0xFF * anim);

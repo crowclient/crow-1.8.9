@@ -23,7 +23,6 @@ import crow.client.utils.GUIBlurUtil;
 import crow.client.utils.RenderUtils;
 import crow.client.utils.Utils;
 import crow.client.utils.font.FontUtil;
-import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.GuiChat;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.renderer.GlStateManager;
@@ -92,7 +91,7 @@ public class ArrayListMod extends Module {
             return;
         }
 
-        ScaledResolution sr = new ScaledResolution(mc);
+        ScaledResolution sr = crow.client.utils.RenderUtils.scaled();
         int screenW = sr.getScaledWidth();
         int screenH = sr.getScaledHeight();
 
@@ -122,7 +121,7 @@ public class ArrayListMod extends Module {
 
         int maxWidth = 0;
         for (Module module : renderModules) {
-            maxWidth = Math.max(maxWidth, getTextWidth(getArrayListText(module)));
+            maxWidth = Math.max(maxWidth, frameWidth(module));
         }
 
         float animatedHeight = 0.0F;
@@ -173,8 +172,8 @@ public class ArrayListMod extends Module {
                 rowProgress[idx] = progress;
                 if (progress <= 0.03F) { idx++; continue; }
 
-                String displayText = getArrayListText(module);
-                int textWidth = getTextWidth(displayText);
+                String displayText = frameText(module);
+                int textWidth = frameWidth(module);
                 int fullBgX1 = alignRight ? posX - textWidth - lineGap - OUTER_PADDING : posX;
                 int fullBgX2 = alignRight ? posX : posX + textWidth + lineGap + OUTER_PADDING;
                 int slide = (int) ((1.0F - progress) * (textWidth + 10));
@@ -192,6 +191,37 @@ public class ArrayListMod extends Module {
             }
         }
 
+        // Per-corner rounding: outer-edge corners round only where the stepped
+        // column profile leaves them exposed; the rail edge stays flush unless
+        // the side line is off, where the first/last rows close the column.
+        final boolean[][] rowCorners = new boolean[rowCount][];
+        int firstVisible = -1;
+        {
+            int prevVis = -1;
+            for (int i = 0; i < rowCount; i++) {
+                if (rowProgress[i] <= 0.03F) continue;
+                if (firstVisible < 0) firstVisible = i;
+                int nextVis = -1;
+                for (int j = i + 1; j < rowCount; j++) {
+                    if (rowProgress[j] > 0.03F) { nextVis = j; break; }
+                }
+                boolean outerTop, outerBottom;
+                if (alignRight) {
+                    outerTop = prevVis < 0 || rowBgX1[prevVis] > rowBgX1[i];
+                    outerBottom = nextVis < 0 || rowBgX1[nextVis] > rowBgX1[i];
+                } else {
+                    outerTop = prevVis < 0 || rowBgX2[prevVis] < rowBgX2[i];
+                    outerBottom = nextVis < 0 || rowBgX2[nextVis] < rowBgX2[i];
+                }
+                boolean innerTop = prevVis < 0 && !lineOn;
+                boolean innerBottom = nextVis < 0 && !lineOn;
+                rowCorners[i] = alignRight
+                        ? new boolean[]{outerTop, outerBottom, innerBottom, innerTop}
+                        : new boolean[]{innerTop, innerBottom, outerBottom, outerTop};
+                prevVis = i;
+            }
+        }
+
         boolean lineOnRight = alignRight;
         if (lineOn && railTop >= 0 && railBottom > railTop) {
             int railX1, railX2;
@@ -202,7 +232,13 @@ public class ArrayListMod extends Module {
                 railX1 = posX - lw;
                 railX2 = posX;
             }
-            Gui.drawRect(railX1, railTop, railX2, railBottom, railColorTop);
+            float railR = lw / 2.0F;
+            if (isThemeLine()) {
+                RenderUtils.drawFlowingGradientRoundedRectVertical(railX1, railTop, railX2, railBottom,
+                        railR, (railColorTop >>> 24) & 0xFF, 0);
+            } else {
+                RenderUtils.drawRoundedRectAA(railX1, railTop, railX2, railBottom, railR, railColorTop);
+            }
         }
 
         if (HUD.enableBlur != null && HUD.enableBlur.isToggled()) {
@@ -219,17 +255,11 @@ public class ArrayListMod extends Module {
             if (bbLeft < bbRight && bbTop < bbBottom) {
                 final int cr = 4;
 
-                final boolean[] blurRound;
-                if (lineOnRight) {
-                    blurRound = new boolean[]{true, true, false, false};
-                } else {
-                    blurRound = new boolean[]{false, false, true, true};
-                }
                 GUIBlurUtil.drawBlurredBackgroundCustom(() -> {
                     for (int i = 0; i < rowCount; i++) {
-                        if (rowProgress[i] <= 0.03F) continue;
+                        if (rowCorners[i] == null) continue;
                         RenderUtils.drawRoundedRectAA(rowBgX1[i], rowYArr[i],
-                                rowBgX2[i], rowYArr[i] + rowH, cr, 0xFFFFFFFF, blurRound);
+                                rowBgX2[i], rowYArr[i] + rowH, cr, 0xFFFFFFFF, rowCorners[i]);
                     }
                 }, bbLeft, bbTop, bbRight - bbLeft, bbBottom - bbTop,
                         (int) HUD.blurRadius.getInput(), 0.6f);
@@ -252,17 +282,16 @@ public class ArrayListMod extends Module {
 
             if (background.isToggled()) {
                 int rowBg = (Math.min((bgRGB >> 24) & 0xFF, alphaScale) << 24) | (bgRGB & 0x00FFFFFF);
+                RenderUtils.drawRoundedRectAA(bgX1, rowY, bgX2, rowY + rowH, CORNER_R, rowBg, rowCorners[i]);
 
-                boolean tl, tr, bl, br;
-                if (lineOnRight) {
-
-                    tl = true; bl = true; tr = false; br = false;
-                } else {
-
-                    tl = false; bl = false; tr = true; br = true;
+                // 1-px lit rim on the top row — the glass-material cue, one rect.
+                if (i == firstVisible) {
+                    int hlA = (0x26 * alphaScale) / 255;
+                    if (hlA > 0) {
+                        RenderUtils.drawRoundedRectAA(bgX1 + 2, rowY + 0.6F, bgX2 - 2, rowY + 1.6F,
+                                0.5F, (hlA << 24) | 0xFFFFFF);
+                    }
                 }
-                RenderUtils.drawRoundedRectAA(bgX1, rowY, bgX2, rowY + rowH, CORNER_R, rowBg,
-                        new boolean[]{tl, bl, br, tr});
             }
 
             if (customFont.isToggled()) {
@@ -278,16 +307,30 @@ public class ArrayListMod extends Module {
 
     }
 
+    // ponytail: per-frame caches. The old comparator called
+    // getTextWidth(getArrayListText(m)) inside the sort, so each of the ~150
+    // comparisons rebuilt two strings and measured two strings glyph-by-glyph.
+    // Now each visible module is formatted and measured exactly once per frame.
+    private final Map<Module, String> frameText = new HashMap<>();
+    private final Map<Module, Integer> frameWidth = new HashMap<>();
+    private final List<Module> renderListBuf = new ArrayList<>();
+
     private List<Module> buildRenderList() {
-        List<Module> result = new ArrayList<>();
-        for (Module module : Crow.moduleManager.getModules()) {
+        renderListBuf.clear();
+        frameText.clear();
+        frameWidth.clear();
+
+        List<Module> all = Crow.moduleManager.getModules();
+        for (int i = 0; i < all.size(); i++) {
+            Module module = all.get(i);
             if (!module.showInHud() || module.moduleCategory() == ModuleCategory.themes) {
                 continue;
             }
             if (hideRenderModules.isToggled() && module.moduleCategory() == ModuleCategory.render) {
                 continue;
             }
-            float progress = moduleAnimations.containsKey(module) ? moduleAnimations.get(module) : (module.isEnabled() ? 1.0F : 0.0F);
+            Float cached = moduleAnimations.get(module);
+            float progress = cached != null ? cached : (module.isEnabled() ? 1.0F : 0.0F);
             float target = module.isEnabled() ? 1.0F : 0.0F;
             progress += (target - progress) * 0.16F;
             if (Math.abs(target - progress) < 0.008F) {
@@ -295,11 +338,26 @@ public class ArrayListMod extends Module {
             }
             moduleAnimations.put(module, progress);
             if (progress > 0.02F) {
-                result.add(module);
+                String text = getArrayListText(module);
+                frameText.put(module, text);
+                frameWidth.put(module, getTextWidth(text));
+                renderListBuf.add(module);
             }
         }
-        result.sort((a, b) -> Integer.compare(getTextWidth(getArrayListText(b)), getTextWidth(getArrayListText(a))));
-        return result;
+        renderListBuf.sort((a, b) -> Integer.compare(frameWidth.get(b), frameWidth.get(a)));
+        return renderListBuf;
+    }
+
+    /** Formatted arraylist text for this frame; falls back for off-frame callers. */
+    private String frameText(Module module) {
+        String cached = frameText.get(module);
+        return cached != null ? cached : getArrayListText(module);
+    }
+
+    /** Measured width for this frame; falls back for off-frame callers. */
+    private int frameWidth(Module module) {
+        Integer cached = frameWidth.get(module);
+        return cached != null ? cached : getTextWidth(getArrayListText(module));
     }
 
     private void handleDrag(int screenW, int screenH, List<Module> active) {
@@ -321,7 +379,8 @@ public class ArrayListMod extends Module {
                     return;
                 }
 
-                int widest = active.stream().mapToInt(m -> getTextWidth(getArrayListText(m))).max().orElse(0);
+                int widest = 0;
+                for (Module m : active) widest = Math.max(widest, frameWidth(m));
                 int rowH = getTextHeight() + VERT_PAD * 2;
                 int totalH = 0;
                 for (Module module : active) {
@@ -410,6 +469,12 @@ public class ArrayListMod extends Module {
             default:
                 return -1;
         }
+    }
+
+    private boolean isThemeLine() {
+        LineColorModes mode = (LineColorModes) lineColorMode.getMode();
+        return mode == LineColorModes.THEME
+                || (mode == LineColorModes.SAME_AS_TEXT && colorMode.getMode() == ColorModes.THEME);
     }
 
     private int getLineColor(int delay) {

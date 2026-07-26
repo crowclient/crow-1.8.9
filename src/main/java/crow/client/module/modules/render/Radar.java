@@ -70,7 +70,8 @@ public class Radar extends Module {
             mc.entityRenderer.setupOverlayRendering();
         }
 
-        RenderUtils.drawRoundedRectAA(x, y, x + panelSize, y + panelSize, corner, 0xD814171D);
+        RenderUtils.drawGlassPanel(x, y, x + panelSize, y + panelSize, corner, 0xC414171D,
+                HUD.dropShadow == null || HUD.dropShadow.isToggled() ? RenderUtils.GLASS_SHADOW_CHROME : 0);
 
         GL11.glPushMatrix();
         GL11.glDisable(GL11.GL_TEXTURE_2D);
@@ -115,11 +116,22 @@ public class Radar extends Module {
 
         drawPlayerArrow(centerX, centerY, (float) arrowScale.getInput());
 
+        // ponytail: yaw is constant for the whole sweep, but sin/cos were being
+        // recomputed per entity below. Range test uses squared distance so the
+        // sqrt inside getDistanceToEntity isn't paid for entities we then reject.
+        final double yawRad = Math.toRadians(playerYaw);
+        final double yawCos = Math.cos(yawRad);
+        final double yawSin = Math.sin(yawRad);
+        final double maxDist = distance.getInput();
+        final double maxDistSq = maxDist * maxDist;
+
         for (Entity en : mc.theWorld.loadedEntityList) {
             if (en == mc.thePlayer) continue;
 
-            double dist = mc.thePlayer.getDistanceToEntity(en);
-            if (dist > distance.getInput()) continue;
+            double ddx = en.posX - mc.thePlayer.posX;
+            double ddy = en.posY - mc.thePlayer.posY;
+            double ddz = en.posZ - mc.thePlayer.posZ;
+            if (ddx * ddx + ddy * ddy + ddz * ddz > maxDistSq) continue;
 
             int dotColor;
             boolean isProjectile = false;
@@ -151,15 +163,11 @@ public class Radar extends Module {
                 continue;
             }
 
-            double dx = en.posX - mc.thePlayer.posX;
-            double dz = en.posZ - mc.thePlayer.posZ;
+            double rotX = -(ddx * yawCos + ddz * yawSin);
+            double rotZ = -ddx * yawSin + ddz * yawCos;
 
-            double yawRad = Math.toRadians(playerYaw);
-            double rotX = -(dx * Math.cos(yawRad) + dz * Math.sin(yawRad));
-            double rotZ = -dx * Math.sin(yawRad) + dz * Math.cos(yawRad);
-
-            float dotX = centerX + (float) rotX / (float) distance.getInput() * radarRadius;
-            float dotY = centerY - (float) rotZ / (float) distance.getInput() * radarRadius;
+            float dotX = centerX + (float) rotX / (float) maxDist * radarRadius;
+            float dotY = centerY - (float) rotZ / (float) maxDist * radarRadius;
 
             dotX = Math.max(x + 4, Math.min(x + panelSize - 4, dotX));
             dotY = Math.max(y + 4, Math.min(y + panelSize - 4, dotY));
@@ -188,7 +196,8 @@ public class Radar extends Module {
                 RenderUtils.drawRoundedRectAA(dotX - 1.5F, dotY - 1.5F, dotX + 1.5F, dotY + 1.5F, 1.5F, dotColor);
             }
 
-            String distLabel = String.valueOf((int) dist);
+            // sqrt only here — the range test above rejects on squared distance.
+            String distLabel = String.valueOf((int) Math.sqrt(ddx * ddx + ddy * ddy + ddz * ddz));
             float distLabelW = (float) FontUtil.small.getStringWidth(distLabel);
             FontUtil.small.drawSmoothString(distLabel, dotX - distLabelW / 2.0F, dotY + 3.0F, 0x99FFFFFF);
 

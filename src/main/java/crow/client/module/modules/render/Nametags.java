@@ -106,7 +106,7 @@ public class Nametags extends Module {
         GL11.glGetFloat(GL11.GL_PROJECTION_MATRIX, PROJECTION);
         GL11.glGetInteger(GL11.GL_VIEWPORT, VIEWPORT);
 
-        ScaledResolution sr = new ScaledResolution(mc);
+        ScaledResolution sr = crow.client.utils.RenderUtils.scaled();
         int scaleFactor = sr.getScaleFactor();
 
         for (EntityPlayer player : new java.util.ArrayList<>(mc.theWorld.playerEntities)) {
@@ -148,21 +148,11 @@ public class Nametags extends Module {
         double y = player.lastTickPosY + (player.posY - player.lastTickPosY) * partialTicks - mc.getRenderManager().viewerPosY;
         double z = player.lastTickPosZ + (player.posZ - player.lastTickPosZ) * partialTicks - mc.getRenderManager().viewerPosZ;
 
-        float scale = (float) nameScale.getInput();
-
-        String nameText = player.getDisplayName().getFormattedText();
-
-        Module nameHider = Crow.moduleManager != null ? Crow.moduleManager.getModuleByClazz(NameHider.class) : null;
-        if (nameHider != null && nameHider.isEnabled()) {
-            nameText = NameHider.format(nameText);
-        }
-
-        if (showHealth.isToggled()) {
-            double ratio = player.getHealth() / Math.max(1.0F, player.getMaxHealth());
-            String colorCode = ratio < 0.3 ? "\u00a7c" : (ratio < 0.5 ? "\u00a76" : (ratio < 0.7 ? "\u00a7e" : "\u00a7a"));
-            nameText += " " + colorCode + Utils.Java.round(player.getHealth(), 1);
-        }
-
+        // ponytail: project first, format the name second. getDisplayName() builds
+        // a ChatComponentText plus click/hover/insertion style objects \u2014 six-odd
+        // allocations \u2014 and this used to run for every player in the world every
+        // frame, including the ones behind you. On a full lobby that alone was
+        // hundreds of thousands of allocations a second.
         RESULT.rewind();
         MODEL_VIEW.rewind();
         PROJECTION.rewind();
@@ -189,6 +179,21 @@ public class Nametags extends Module {
         float screenX = RESULT.get(0) / scaleFactor;
         float screenY = (VIEWPORT.get(3) - RESULT.get(1)) / scaleFactor;
 
+        float scale = (float) nameScale.getInput();
+
+        String nameText = player.getDisplayName().getFormattedText();
+
+        Module nameHider = Crow.moduleManager != null ? Crow.moduleManager.getModuleByClazz(NameHider.class) : null;
+        if (nameHider != null && nameHider.isEnabled()) {
+            nameText = NameHider.format(nameText);
+        }
+
+        if (showHealth.isToggled()) {
+            double ratio = player.getHealth() / Math.max(1.0F, player.getMaxHealth());
+            String colorCode = ratio < 0.3 ? "\u00a7c" : (ratio < 0.5 ? "\u00a76" : (ratio < 0.7 ? "\u00a7e" : "\u00a7a"));
+            nameText += " " + colorCode + Utils.Java.round(player.getHealth(), 1);
+        }
+
         return new TagRenderData(screenX, screenY, scale, nameText, collectEquipment(player));
     }
 
@@ -208,8 +213,8 @@ public class Nametags extends Module {
         GlStateManager.scale(tag.scale, tag.scale, 1.0F);
 
         if (showRect.isToggled()) {
-            RenderUtils.drawRoundedRectAA(-halfWidth - 3, cardTop, halfWidth + 3, cardBottom, 4, 0xAA111217);
-            RenderUtils.drawRoundedRectAA(-halfWidth - 3, cardBottom - 1, halfWidth + 3, cardBottom, 2, 0x55FFFFFF);
+            // Glass plate: translucent dark fill + lit rim/hairline, no shadow in-world.
+            RenderUtils.drawGlassPanel(-halfWidth - 3, cardTop, halfWidth + 3, cardBottom, 4, 0xB80E1014, 0);
         }
 
         if (showArmor.isToggled() && !tag.equipment.isEmpty()) {

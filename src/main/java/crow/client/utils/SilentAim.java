@@ -12,32 +12,55 @@ import java.util.concurrent.ThreadLocalRandom;
 /**
  * Universal silent-aim driver.
  *
- * Modules submit per-tick {@link Request}s describing a target yaw/pitch and a
- * profile. SilentAim runs a critically-damped spring with Fitts-law velocity
- * scaling, GCD-snapped output, sub-degree settle tremor, and a small reaction
- * delay on big target jumps. The result is a server yaw/pitch that's smooth
- * AND noisy on the right scales — fast on big sweeps, slow on fine corrections,
- * with quiet sub-degree wobble while parked on target.
+ * <h2>Tick contract — read this before changing anything</h2>
  *
- * The visual rotation ({@code mc.thePlayer.rotationYaw/Pitch}) is left alone:
- * the rotation only goes out on the C03 packet via UpdateEvent.setYaw/setPitch,
- * so first-person camera continues to follow the user's mouse. In third-person,
- * use {@link #applyToLook(LookEvent)} to keep the camera in sync.
+ * Vanilla runs, in this order, inside one {@code Minecraft.runTick}:
+ * <pre>
+ *   runTick HEAD
+ *     -&gt; EntityPlayerSP.onUpdate
+ *          -&gt; ... -&gt; moveEntityWithHeading -&gt; moveFlying   (MoveInputEvent)
+ *          -&gt; onUpdateWalkingPlayer                        (UpdateEvent.PRE, C03 send)
+ * </pre>
+ * The rotation cannot change between those two points, so vanilla always
+ * <i>moves</i> with exactly the yaw it <i>sends</i>. Simulation-based anticheats
+ * (Grim et al.) rebuild your position delta from the yaw in the packet and the
+ * nine possible WASD combinations; if the yaw you moved with differs from the
+ * yaw you sent, the rebuild misses and you flag — every single tick you turn.
+ *
+ * Therefore the spring is stepped exactly once per tick, in {@link #beginCycle()}
+ * at {@code runTick} HEAD, <b>before</b> the player entity updates. {@link #aim}
+ * only submits a target for the <i>next</i> step. Both {@code moveFlying} and
+ * the C03 packet then read one settled value, {@link #getServerYaw()}, and they
+ * agree by construction. The cost is one tick of aim latency, which is
+ * unavoidable: nothing can send a yaw that movement has already consumed.
+ *
+ * The visual rotation ({@code mc.thePlayer.rotationYaw/Pitch}) is left alone,
+ * so the first-person camera keeps following the user's mouse. The whole
+ * movement phase, however, runs with {@code rotationYaw} swapped to
+ * {@link #getServerYaw()} by the {@code EntityPlayerSP.onLivingUpdate} mixin —
+ * {@code moveFlying} is not its only consumer, {@code EntityLivingBase.jump()}
+ * reads the field directly for the sprint-jump boost. That swap also leaves the
+ * rendered head and body on the reported yaw, so F5 shows what the server sees;
+ * only pitch needs {@link #beginPlayerRender}.
  *
  * Typical module usage (inside an UpdateEvent.PRE handler):
  * <pre>
  *   if (e.isPre() &amp;&amp; haveTarget) {
  *       SilentAim.Request r = new SilentAim.Request();
- *       r.yaw = computedYaw;
- *       r.pitch = computedPitch;
+ *       r.yaw = computedYaw;              // aim from SilentAim.getServerYaw(),
+ *       r.pitch = computedPitch;          // not from mc.thePlayer.rotationYaw
  *       r.profile = SilentAim.Profile.COMBAT;
  *       r.priority = 100;
  *       r.claimant = this;
  *       SilentAim.aim(r);
- *       SilentAim.applyToUpdate(e);
  *   }
- *   if (SilentAim.isReady(2.5f)) attack();
+ *   if (SilentAim.isClaimedBy(this) &amp;&amp; aimedCloseEnough()) attack();
  * </pre>
+ * Writing the rotation onto the packet is not the module's job — the
+ * {@code onUpdateWalkingPlayer} mixin calls {@link #applyToUpdate(UpdateEvent)}
+ * after every module has been polled, so the packet carries the silent rotation
+ * on every tick the movement is being steered by it, including the glide back
+ * to the camera after the last module lets go.
  */
 public final class SilentAim {
 
@@ -49,38 +72,24 @@ public final class SilentAim {
 
     public enum Profile {
         /** Fast tracking for combat (KillAura). */
-        COMBAT(/*stiff*/ 0.55f, /*damp*/ 0.78f, /*yawCap*/ 36f, /*pitCap*/ 22f,
-               /*minSpd*/ 1.6f, /*tremor*/ 0.10f, /*reactMin*/ 1, /*reactMax*/ 3),
-        /**
-         * Medium fluidity for block-place modules (BlockIn / Scaffold). Lower
-         * stiffness than COMBAT — settles in 6–8 ticks instead of 2–3, which
-         * reads as one continuous arc to the eye instead of a snap.
-         */
-        PLACE (/*stiff*/ 0.26f, /*damp*/ 0.86f, /*yawCap*/ 14f, /*pitCap*/ 10f,
-               /*minSpd*/ 0.8f, /*tremor*/ 0.06f, /*reactMin*/ 0, /*reactMax*/ 1),
+        COMBAT (/*stiff*/ 0.55f, /*yawCap*/ 36f, /*pitCap*/ 22f, /*minSpd*/ 1.6f, /*tremor*/ 0.10f),
+        /** Medium fluidity for block-place modules (BlockIn / Scaffold). */
+        PLACE  (/*stiff*/ 0.26f, /*yawCap*/ 14f, /*pitCap*/ 10f, /*minSpd*/ 0.8f, /*tremor*/ 0.06f),
         /** Slow, careful — for one-shot precise placements. */
-        PRECISE(/*stiff*/ 0.34f, /*damp*/ 0.88f, /*yawCap*/ 18f, /*pitCap*/ 14f,
-               /*minSpd*/ 0.9f, /*tremor*/ 0.05f, /*reactMin*/ 0, /*reactMax*/ 2);
+        PRECISE(/*stiff*/ 0.34f, /*yawCap*/ 18f, /*pitCap*/ 14f, /*minSpd*/ 0.9f, /*tremor*/ 0.05f);
 
         final float stiffness;
-        final float damping;
         final float yawCapDeg;
         final float pitchCapDeg;
         final float minSpeedDeg;
         final float tremorAmpDeg;
-        final int reactionTicksMin;
-        final int reactionTicksMax;
 
-        Profile(float stiffness, float damping, float yawCap, float pitchCap,
-                float minSpeed, float tremorAmp, int reactMin, int reactMax) {
+        Profile(float stiffness, float yawCap, float pitchCap, float minSpeed, float tremorAmp) {
             this.stiffness = stiffness;
-            this.damping = damping;
             this.yawCapDeg = yawCap;
             this.pitchCapDeg = pitchCap;
             this.minSpeedDeg = minSpeed;
             this.tremorAmpDeg = tremorAmp;
-            this.reactionTicksMin = reactMin;
-            this.reactionTicksMax = reactMax;
         }
     }
 
@@ -102,76 +111,119 @@ public final class SilentAim {
          * Practical range: 0.15 (very smooth) to 0.95 (near-snap).
          */
         public float stiffness = 0f;
-        /** 0 = use profile default. Higher = more drag on velocity. */
+        /**
+         * 0 = critically damped for the effective stiffness, which is what you
+         * want almost always: fastest approach with no overshoot. Raise it to
+         * deliberately overdamp (slower, but guaranteed never to sail past the
+         * target) — Clutch does this on its final, life-or-death placement.
+         * Lowering it below critical makes the spring ring around the target.
+         */
         public float damping = 0f;
-        /** Sync head/body visual yaw to server yaw (recommended for combat). */
-        public boolean syncVisualHead = true;
-        /** Override movement-input yaw with server yaw (fixMovement). */
-        public boolean fixMovement = true;
         /**
          * Disable settle-tremor for this request. Use for placement modules where
          * any sub-degree wobble breaks raycast-based anticheat checks
          * (e.g. Grim's RotationPlace).
          */
         public boolean disableTremor = false;
-        /**
-         * Disable the 1–3 tick reaction-delay that fires when the target jumps
-         * &gt;30° in one tick. Useful for placement-chain modules (BlockIn,
-         * Scaffold) which routinely switch targets between adjacent placements
-         * — the freeze-then-resume reads as a flick rather than a fluid arc.
-         */
-        public boolean disableReaction = false;
+        /** Apply the target delta directly while still snapping it to the mouse GCD. */
+        public boolean instant = false;
         /** Diagnostic / debug; not used for control. */
         public Object claimant;
     }
 
-    /** Submit an aim request for this tick. Highest priority wins; ties → first call. */
+    /**
+     * Advance the silent rotation by one tick. Called from {@code Minecraft.runTick}
+     * HEAD — before the player entity updates, so {@code moveFlying} and the C03
+     * packet later in the same tick both read the value produced here.
+     */
+    public static void beginCycle() {
+        refreshContext();
+        if (mc.thePlayer == null) return;
+
+        Request req = pending;
+        pending = null;
+        currentPriority = Integer.MIN_VALUE;
+
+        if (req == null && !active) return;
+
+        if (!active) {
+            // First tick of a new engagement. moveFlying has not run yet this
+            // tick, so seeding from the live rotation here still leaves movement
+            // and packet agreeing on the stepped value below.
+            seedFromPlayer();
+            active = true;
+        }
+
+        prevServerYaw = serverYaw;
+        prevServerPitch = serverPitch;
+
+        if (req != null) {
+            currentReq = req;
+            returnTicks = 0;
+            stepSpring(req);
+            return;
+        }
+
+        // Nobody aimed last tick. Glide back to the user's camera instead of
+        // dropping the rotation: an instant hand-back puts one large, non
+        // GCD-aligned delta on the wire at the end of every engagement, and
+        // desyncs movement from the packet on the tick it happens.
+        currentReq = null;
+        RETURN.yaw = mc.thePlayer.rotationYaw;
+        RETURN.pitch = mc.thePlayer.rotationPitch;
+        stepSpring(RETURN);
+        if (++returnTicks >= RETURN_MAX_TICKS || atCamera()) {
+            standDown();
+        }
+    }
+
+    /**
+     * Submit an aim target for the next step. Highest priority in a tick wins;
+     * ties go to the first caller. The rotation this produces goes out on the
+     * <i>following</i> tick's packet — see the class docs.
+     */
     public static void aim(Request req) {
         if (req == null) return;
         if (mc == null || mc.thePlayer == null) return;
 
-        int tick = mc.thePlayer.ticksExisted;
+        refreshContext();
 
-        if (tick != lastSteppedTick) {
-            // First aim() call this tick — capture rest-state if we were dormant
-            if (activeForTicks <= 0) {
-                seedFromPlayer();
-            }
-
-            // Snapshot pre-step state so a higher-priority later call can rewind
-            preStepYaw = serverYaw;
-            preStepPitch = serverPitch;
-            preStepYawVel = yawVel;
-            preStepPitchVel = pitchVel;
-
-            prevServerYaw = serverYaw;
-            prevServerPitch = serverPitch;
-
-            applyRequest(req, /*resnap=*/ false);
-            lastSteppedTick = tick;
-            currentReq = req;
-            currentPriority = req.priority;
-        } else if (req.priority > currentPriority) {
-            // Higher priority: rewind to start-of-tick, re-step to new target
-            serverYaw = preStepYaw;
-            serverPitch = preStepPitch;
-            yawVel = preStepYawVel;
-            pitchVel = preStepPitchVel;
-            applyRequest(req, /*resnap=*/ true);
-            currentReq = req;
+        if (pending == null || req.priority > currentPriority) {
+            pending = req;
             currentPriority = req.priority;
         }
-        // else: lower-priority same-tick call → ignored
-
-        activeForTicks = 2;
     }
 
     /** Whether silent aim is currently driving the server-side rotation. */
     public static boolean isActive() {
-        return activeForTicks > 0;
+        return active;
     }
 
-    /** Server yaw being sent in the C03 packet. */
+    /** True only while {@code claimant} owns the rotation currently being sent. */
+    public static boolean isClaimedBy(Object claimant) {
+        return claimant != null
+                && active
+                && currentReq != null
+                && currentReq.claimant == claimant;
+    }
+
+    /**
+     * Hand the rotation back when it still belongs to {@code claimant}. This does
+     * not snap: the next {@link #beginCycle()} starts the glide back to the
+     * camera, keeping movement and packet in step the whole way down.
+     */
+    public static void release(Object claimant) {
+        if (claimant == null) return;
+        if (pending != null && pending.claimant == claimant) {
+            pending = null;
+            currentPriority = Integer.MIN_VALUE;
+        }
+        if (currentReq != null && currentReq.claimant == claimant) {
+            currentReq = null;
+        }
+    }
+
+    /** Server yaw being sent in the C03 packet, and used by {@code moveFlying}. */
     public static float getServerYaw() {
         return serverYaw;
     }
@@ -181,6 +233,7 @@ public final class SilentAim {
         return serverPitch;
     }
 
+    /** Server yaw of the previous tick — {@code serverYaw - prevServerYaw} is this tick's applied step. */
     public static float getPrevServerYaw() {
         return prevServerYaw;
     }
@@ -189,56 +242,211 @@ public final class SilentAim {
         return prevServerPitch;
     }
 
-    /** True if the spring is settled within {@code thresholdDeg} of the target. */
-    public static boolean isReady(float thresholdDeg) {
-        if (currentReq == null) return false;
-        float yawErr = MathHelper.wrapAngleTo180_float(currentReq.yaw - serverYaw);
-        float pitErr = currentReq.pitch - serverPitch;
-        return Math.abs(yawErr) <= thresholdDeg && Math.abs(pitErr) <= thresholdDeg;
-    }
-
-    public static boolean isReady() {
-        return isReady(3.0f);
-    }
-
-    /** Convenience: write the current server rotation onto an UpdateEvent. */
+    /**
+     * Write the current server rotation onto an UpdateEvent. Called from the
+     * {@code onUpdateWalkingPlayer} mixin once every module has been polled;
+     * modules do not need to call it themselves.
+     */
     public static void applyToUpdate(UpdateEvent e) {
-        if (!isActive()) return;
+        if (!active) return;
         e.setYaw(serverYaw);
         e.setPitch(serverPitch);
     }
 
     /**
-     * Convenience: align the third-person camera to the silent rotation.
-     * No-op in first person — silent aim stays silent there because the camera
-     * follows the user's mouse and only the packet gets overridden.
+     * Align the client-side look <i>vector</i> ({@code Entity.getLook}, used for
+     * ray traces) to the silent rotation while in third person. This is not the
+     * camera and not the rendered model — for the model see
+     * {@link #beginPlayerRender}.
      */
     public static void applyToLook(LookEvent e) {
-        if (!isActive()) return;
+        if (!active) return;
         if (mc.gameSettings == null || mc.gameSettings.thirdPersonView == 0) return;
         e.setYaw(serverYaw);
         e.setPitch(serverPitch);
         e.setPrevYaw(prevServerYaw);
         e.setPrevPitch(prevServerPitch);
-        syncVisualHead();
     }
 
-    /** Convenience: fixMovement — make movement direction track the server yaw. */
+    /**
+     * Steer movement by the reported yaw, but keep WASD pointing where the
+     * <i>camera</i> is facing.
+     *
+     * <p>The yaw override is not negotiable — the server rebuilds the position
+     * delta from the yaw in the packet, so walking on the camera yaw while
+     * sending the aim yaw is a guaranteed simulation mismatch. What <i>is</i>
+     * negotiable is which movement input we hand it. Previously we passed the
+     * user's raw input straight through, so WASD silently rotated with the aim:
+     * with the aim 60° off the camera, W walked 60° off course.
+     *
+     * <p>Instead, work out the world direction the input asked for in the camera
+     * frame, then pick the {@code (strafe, forward)} pair that comes closest to
+     * it in the reported-yaw frame. The candidates are exactly the eight vanilla
+     * key combinations, rescaled by the magnitude the caller already applied
+     * (0.98 walking, ×0.3 sneaking, ×0.2 using an item — both axes always carry
+     * the same factor, so one scalar preserves it). That matters: the server
+     * reconstructs movement by replaying those same nine combinations against
+     * the packet yaw, so anything off-grid would fail to rebuild. This stays on
+     * the grid, which is why it needs no "move fix" toggle and cannot desync.
+     *
+     * <p>ponytail: eight directions means the result can sit up to 22.5° off the
+     * direction asked for, and while sprinting only the forward-positive three
+     * are legal, which widens that to 45°. Both ceilings are inherent — a rotated
+     * yaw has no other legal directions to offer, and vanilla cannot sprint
+     * sideways either. In practice the aim and the camera both point near the
+     * target, so the offset is small and the snap rarely bites. Sub-grid accuracy
+     * would need off-grid inputs, which is the desync this exists to avoid.
+     */
     public static void applyToMove(MoveInputEvent e) {
-        if (!isActive()) return;
-        if (currentReq == null || !currentReq.fixMovement) return;
+        if (!active) return;
         e.setYaw(serverYaw);
+
+        float rawStrafe = e.getStrafe();
+        float rawForward = e.getForward();
+        float scale = Math.max(Math.abs(rawStrafe), Math.abs(rawForward));
+        if (scale <= 1.0E-4f) return;
+
+        double cam = Math.toRadians(cameraYaw);
+        double sinCam = Math.sin(cam), cosCam = Math.cos(cam);
+        double wantX = rawStrafe * cosCam - rawForward * sinCam;
+        double wantZ = rawForward * cosCam + rawStrafe * sinCam;
+        double wantLen = Math.sqrt(wantX * wantX + wantZ * wantZ);
+        if (wantLen <= 1.0E-6) return;
+        wantX /= wantLen;
+        wantZ /= wantLen;
+
+        double srv = Math.toRadians(serverYaw);
+        double sinSrv = Math.sin(srv), cosSrv = Math.cos(srv);
+
+        // Vanilla can only sprint forwards: EntityPlayerSP cancels the sprint as
+        // soon as movementInput.moveForward drops below 0.8 (EntityPlayerSP:794).
+        // Sprint state is still driven by the raw input — we never touch
+        // movementInput — so emitting a sideways or backward direction while the
+        // sprint flag is set describes a movement no vanilla client can produce,
+        // and the server's rebuild misses by the full grid error. That is the
+        // Simulation offset: 2*v*sin(θ/2) at walking speed for a 45° miss is
+        // ≈0.0985, which is exactly the value that kept repeating in the log.
+        // While sprinting, restrict the candidates to the forward-positive arc.
+        boolean sprinting = mc.thePlayer != null && mc.thePlayer.isSprinting();
+
+        int bestF = 0, bestS = 0;
+        double bestDot = -Double.MAX_VALUE, heldDot = -Double.MAX_VALUE;
+        for (int fi = sprinting ? 1 : -1; fi <= 1; fi++) {
+            for (int si = -1; si <= 1; si++) {
+                if (fi == 0 && si == 0) continue;
+                double vx = si * cosSrv - fi * sinSrv;
+                double vz = fi * cosSrv + si * sinSrv;
+                double dot = (vx * wantX + vz * wantZ) / Math.sqrt(vx * vx + vz * vz);
+                if (dot > bestDot) { bestDot = dot; bestF = fi; bestS = si; }
+                if (fi == heldMoveF && si == heldMoveS) heldDot = dot;
+            }
+        }
+
+        // Hysteresis. The settle tremor jitters the reported yaw by a fraction of
+        // a degree, so a target sitting on a 45° boundary would otherwise flip
+        // between two directions every tick. Keep the previous choice until the
+        // new one is clearly better.
+        if (heldDot > -Double.MAX_VALUE && bestDot - heldDot < 0.04) {
+            bestF = heldMoveF;
+            bestS = heldMoveS;
+        }
+        heldMoveF = bestF;
+        heldMoveS = bestS;
+
+        e.setStrafe(bestS * scale);
+        e.setForward(bestF * scale);
+    }
+
+    /**
+     * Run the movement phase on the reported yaw. Called around
+     * {@code super.onLivingUpdate()} from the {@code EntityPlayerSP} mixin.
+     *
+     * <p>{@code moveFlying} is not the only consumer of the field —
+     * {@code EntityLivingBase.jump()} reads {@code rotationYaw} directly for the
+     * sprint-jump boost — so the whole phase is swapped rather than each call
+     * site patched. Stashing the camera yaw here is also what lets
+     * {@link #applyToMove} still know which way the user was facing.
+     */
+    public static void beginMovementPhase() {
+        if (!active || movementSwapped || mc.thePlayer == null) return;
+        cameraYaw = mc.thePlayer.rotationYaw;
+        mc.thePlayer.rotationYaw = serverYaw;
+        movementSwapped = true;
+    }
+
+    /** Undo {@link #beginMovementPhase}, restoring the camera yaw. */
+    public static void endMovementPhase() {
+        if (!movementSwapped || mc.thePlayer == null) return;
+        mc.thePlayer.rotationYaw = cameraYaw;
+        movementSwapped = false;
+    }
+
+    /**
+     * Put the rendered model's <i>body</i> and <i>pitch</i> on the silent
+     * rotation for the length of the render call. Driven from
+     * {@code RenderPlayerEvent.Pre}, undone in {@link #endPlayerRender}.
+     *
+     * <p>The head needs no help: {@code EntityPlayer.onLivingUpdate} assigns
+     * {@code rotationYawHead = rotationYaw} inside the window the
+     * {@code EntityPlayerSP} mixin swaps, so it already carries the reported yaw.
+     *
+     * <p>The body does. {@code EntityLivingBase.updateDistance} — the thing that
+     * drives {@code renderYawOffset} — is called from {@code onUpdate}, not
+     * {@code onLivingUpdate}, so it lands outside that window and pins the body
+     * to the camera:
+     * <pre>
+     *   float f1 = wrapAngleTo180(this.rotationYaw - this.renderYawOffset);
+     *   ... clamp f1 to ±75 ...
+     *   this.renderYawOffset = this.rotationYaw - f1;
+     * </pre>
+     * Head on the reported yaw and body on the camera yaw, with the difference
+     * clamped at 75°, renders as a permanently twisted neck rather than a player
+     * who turned. Shifting the body by the same delta the head took restores
+     * vanilla's head/body relationship — including its lag and that clamp — and
+     * just rotates the whole assembly onto the reported yaw.
+     *
+     * <p>Done here rather than in a mixin because {@code updateDistance} has no
+     * obfuscation mapping under that name, so it cannot be targeted directly.
+     *
+     * <p>Pitch is the other exception: it is restored after the movement phase
+     * because {@code rotationPitch} <i>is</i> the first-person camera, so the
+     * render call is the only place it can be corrected.
+     */
+    public static void beginPlayerRender(net.minecraft.entity.player.EntityPlayer p) {
+        if (!active || renderSwapped || p == null || p != mc.thePlayer) return;
+
+        float bodyDelta = MathHelper.wrapAngleTo180_float(serverYaw - cameraYaw);
+
+        stashBodyYaw = p.renderYawOffset;
+        stashPrevBodyYaw = p.prevRenderYawOffset;
+        stashPitch = p.rotationPitch;
+        stashPrevPitch = p.prevRotationPitch;
+
+        p.renderYawOffset += bodyDelta;
+        p.prevRenderYawOffset += bodyDelta;
+        p.rotationPitch = serverPitch;
+        p.prevRotationPitch = prevServerPitch;
+
+        renderSwapped = true;
+    }
+
+    /** Undo {@link #beginPlayerRender}. Called from {@code RenderPlayerEvent.Post}. */
+    public static void endPlayerRender(net.minecraft.entity.player.EntityPlayer p) {
+        if (!renderSwapped || p == null || p != mc.thePlayer) return;
+
+        p.renderYawOffset = stashBodyYaw;
+        p.prevRenderYawOffset = stashPrevBodyYaw;
+        p.rotationPitch = stashPitch;
+        p.prevRotationPitch = stashPrevPitch;
+
+        renderSwapped = false;
     }
 
     /** Force-clear all state (e.g. on world unload, dimension switch). */
     public static void reset() {
-        activeForTicks = 0;
-        currentReq = null;
-        currentPriority = Integer.MIN_VALUE;
-        yawVel = pitchVel = 0f;
-        reactionLeft = 0;
-        lastTargetYaw = Float.NaN;
-        lastTargetPitch = Float.NaN;
+        clearState();
+        trackedPlayer = null;
+        trackedWorld = null;
     }
 
     /* ===================================================================== */
@@ -246,133 +454,184 @@ public final class SilentAim {
     /* ===================================================================== */
 
     private static float serverYaw, serverPitch;
+    /**
+     * Double-precision accumulators behind {@code serverYaw}/{@code serverPitch}.
+     *
+     * <p>Every step is an exact multiple of the mouse GCD, so the rotation should
+     * stay on that lattice forever — which is the whole premise AimModulo360
+     * tests. Accumulating into a float lost roughly 1e-7 of a degree per tick,
+     * and a long engagement is thousands of ticks, so the sum drifted off the
+     * lattice far enough to flag intermittently. Summing in double and narrowing
+     * only on read keeps the reported value the nearest float to a true lattice
+     * point, which is the same rounding a vanilla client has.
+     */
+    private static double serverYawAcc, serverPitchAcc;
     private static float prevServerYaw, prevServerPitch;
     private static float yawVel, pitchVel;
 
-    // Per-tick checkpointing for priority rewind
-    private static float preStepYaw, preStepPitch;
-    private static float preStepYawVel, preStepPitchVel;
-
-    // Reaction delay — engages on big target deltas (target acquisition / new lock)
-    private static int reactionLeft;
-    private static float lastTargetYaw = Float.NaN;
-    private static float lastTargetPitch = Float.NaN;
-
-    // Settle tremor — slow sub-degree wobble while parked on target
+    // Settle tremor — slow sub-degree wobble applied to the target
     private static double tremorYawPhaseA, tremorYawPhaseB;
     private static double tremorPitchPhaseA, tremorPitchPhaseB;
 
-    private static int activeForTicks;
-    private static int lastSteppedTick = -1;
+    private static boolean active;
+    private static Request pending;
     private static Request currentReq;
     private static int currentPriority = Integer.MIN_VALUE;
+    private static int returnTicks;
+    private static Object trackedPlayer;
+    private static Object trackedWorld;
+
+    // Render-time body/pitch swap — see beginPlayerRender.
+    private static boolean renderSwapped;
+    private static float stashBodyYaw, stashPrevBodyYaw;
+    private static float stashPitch, stashPrevPitch;
+
+    // Movement-phase yaw swap — see beginMovementPhase.
+    private static boolean movementSwapped;
+    private static float cameraYaw;
+
+    // Last movement grid direction handed to moveFlying — see applyToMove.
+    private static int heldMoveF, heldMoveS;
+
+    /** Glide profile used to hand the rotation back to the camera. */
+    private static final Request RETURN = new Request();
+    static {
+        RETURN.profile = Profile.PRECISE;
+        RETURN.disableTremor = true;
+        RETURN.maxYawStepDeg = 14f;
+        RETURN.maxPitchStepDeg = 10f;
+    }
+
+    /** ponytail: flat tick budget, not a tunable. It only bounds how long a
+     *  hand-back may chase a camera the user keeps spinning. */
+    private static final int RETURN_MAX_TICKS = 20;
+
+    private static void clearState() {
+        active = false;
+        pending = null;
+        currentReq = null;
+        currentPriority = Integer.MIN_VALUE;
+        returnTicks = 0;
+        serverYaw = serverPitch = 0f;
+        serverYawAcc = serverPitchAcc = 0.0;
+        prevServerYaw = prevServerPitch = 0f;
+        yawVel = pitchVel = 0f;
+        tremorYawPhaseA = tremorYawPhaseB = 0.0;
+        tremorPitchPhaseA = tremorPitchPhaseB = 0.0;
+    }
+
+    private static void standDown() {
+        active = false;
+        currentReq = null;
+        returnTicks = 0;
+        yawVel = pitchVel = 0f;
+    }
+
+    private static boolean atCamera() {
+        return Math.abs(MathHelper.wrapAngleTo180_float(mc.thePlayer.rotationYaw - serverYaw)) < 0.5f
+                && Math.abs(mc.thePlayer.rotationPitch - serverPitch) < 0.5f;
+    }
 
     /* ===================================================================== */
     /* Spring step                                                            */
     /* ===================================================================== */
 
-    private static void applyRequest(Request req, boolean resnap) {
+    private static void stepSpring(Request req) {
         Profile p = req.profile != null ? req.profile : Profile.COMBAT;
 
         float targetYaw = req.yaw;
         float targetPitch = MathHelper.clamp_float(req.pitch, -89.5f, 89.5f);
 
-        // Reaction delay: trigger when target jumps significantly between ticks.
-        // Skipped for placement-chain modules so target switches don't stutter.
-        if (!req.disableReaction && !Float.isNaN(lastTargetYaw)) {
-            float jumpYaw = Math.abs(MathHelper.wrapAngleTo180_float(targetYaw - lastTargetYaw));
-            float jumpPit = Math.abs(targetPitch - lastTargetPitch);
-            float jump = Math.max(jumpYaw, jumpPit * 1.5f); // pitch counts more
-            if (jump > 30f && reactionLeft <= 0 && !resnap) {
-                reactionLeft = p.reactionTicksMin
-                        + ThreadLocalRandom.current().nextInt(
-                                Math.max(1, p.reactionTicksMax - p.reactionTicksMin + 1));
-            }
-        }
-        lastTargetYaw = targetYaw;
-        lastTargetPitch = targetPitch;
-
-        if (reactionLeft > 0) {
-            reactionLeft--;
-            // hold position; no spring step, no tremor (humans freeze briefly)
-            yawVel *= 0.5f;
-            pitchVel *= 0.5f;
+        if (req.instant) {
+            float yErr = MathHelper.wrapAngleTo180_float(targetYaw - serverYaw);
+            float pErr = targetPitch - serverPitch;
+            yawVel = pitchVel = 0f;
+            applyStep(snapStepToGcd(yErr, yErr), snapStepToGcd(pErr, pErr));
             return;
         }
 
-        float effStiffness = req.stiffness > 0f ? req.stiffness : p.stiffness;
-        float effDamping   = req.damping   > 0f ? req.damping   : p.damping;
+        // Settle tremor perturbs the TARGET, not the step. Perturbing the step
+        // ran it through snapStepToGcd's overshoot clamp, which only clips motion
+        // *toward* the target — so the wobble was rectified into a steady push
+        // away from it that the spring then spent every tick fighting. Two phases
+        // per axis at incommensurate frequencies keep it unpredictable.
+        if (!req.disableTremor && p.tremorAmpDeg > 0f) {
+            ThreadLocalRandom r = ThreadLocalRandom.current();
+            tremorYawPhaseA   += 0.18  + r.nextDouble() * 0.04;
+            tremorYawPhaseB   += 0.061 + r.nextDouble() * 0.012;
+            tremorPitchPhaseA += 0.155 + r.nextDouble() * 0.035;
+            tremorPitchPhaseB += 0.047 + r.nextDouble() * 0.010;
 
-        // ----- yaw -----
-        float yawErr = MathHelper.wrapAngleTo180_float(targetYaw - serverYaw);
-        float yawCap = req.maxYawStepDeg > 0f ? req.maxYawStepDeg : p.yawCapDeg;
-        float yawStep = stepAxis(yawErr, yawCap, p.minSpeedDeg, effStiffness, effDamping, /*isYaw=*/ true);
-
-        // ----- pitch -----
-        float pitErr = targetPitch - serverPitch;
-        float pitCap = req.maxPitchStepDeg > 0f ? req.maxPitchStepDeg : p.pitchCapDeg;
-        float pitStep = stepAxis(pitErr, pitCap, p.minSpeedDeg, effStiffness, effDamping, /*isYaw=*/ false);
-
-        // Settle tremor: tiny sinusoidal noise when the spring is near-target.
-        // Two phases per axis at incommensurate frequencies → unpredictable but smooth.
-        // Disabled for placement requests where Grim raycasts the hit vec.
-        float closeness = req.disableTremor ? 0f : settleCloseness(Math.abs(yawErr), Math.abs(pitErr));
-        if (closeness > 0f) {
-            tremorYawPhaseA   += 0.18 + ThreadLocalRandom.current().nextDouble() * 0.04;
-            tremorYawPhaseB   += 0.061 + ThreadLocalRandom.current().nextDouble() * 0.012;
-            tremorPitchPhaseA += 0.155 + ThreadLocalRandom.current().nextDouble() * 0.035;
-            tremorPitchPhaseB += 0.047 + ThreadLocalRandom.current().nextDouble() * 0.010;
-
-            float yawTremor = (float) (
-                    Math.sin(tremorYawPhaseA) * 0.62 + Math.sin(tremorYawPhaseB) * 0.38)
-                    * p.tremorAmpDeg * closeness;
-            float pitTremor = (float) (
-                    Math.sin(tremorPitchPhaseA) * 0.55 + Math.sin(tremorPitchPhaseB) * 0.45)
-                    * p.tremorAmpDeg * 0.7f * closeness;
-
-            yawStep += yawTremor;
-            pitStep += pitTremor;
+            targetYaw += (float) (Math.sin(tremorYawPhaseA) * 0.62
+                    + Math.sin(tremorYawPhaseB) * 0.38) * p.tremorAmpDeg;
+            targetPitch += (float) (Math.sin(tremorPitchPhaseA) * 0.55
+                    + Math.sin(tremorPitchPhaseB) * 0.45) * p.tremorAmpDeg * 0.7f;
         }
+
+        float k = req.stiffness > 0f ? req.stiffness : p.stiffness;
+        float c = req.damping > 0f ? req.damping : criticalDamping(k);
+
+        float yawErr = MathHelper.wrapAngleTo180_float(targetYaw - serverYaw);
+        float pitErr = targetPitch - serverPitch;
+
+        float yawCap = req.maxYawStepDeg > 0f ? req.maxYawStepDeg : p.yawCapDeg;
+        float pitCap = req.maxPitchStepDeg > 0f ? req.maxPitchStepDeg : p.pitchCapDeg;
 
         // GCD snap so server-side angle deltas are integer multiples of the
         // mouse-sensitivity GCD. This is what Grim's AimModulo360 verifies:
-        // a real mouse produces yaw deltas of n*GCD for integer n. We snap
-        // AND cap-without-overshoot in one step so the final delta stays
+        // a real mouse can only produce yaw deltas of n*GCD. Snap AND
+        // cap-without-overshoot in one step so the final delta stays
         // GCD-aligned even at the brink of the target.
-        yawStep = snapStepToGcd(yawStep, yawErr);
-        pitStep = snapStepToGcd(pitStep, pitErr);
+        float yawStep = snapStepToGcd(
+                stepAxis(yawErr, yawCap, p.minSpeedDeg, k, c, /*isYaw=*/ true), yawErr);
+        float pitStep = snapStepToGcd(
+                stepAxis(pitErr, pitCap, p.minSpeedDeg, k, c, /*isYaw=*/ false), pitErr);
 
-        serverYaw += yawStep;
-        serverPitch = MathHelper.clamp_float(serverPitch + pitStep, -89.5f, 89.5f);
+        applyStep(yawStep, pitStep);
+    }
 
-        // Sync head/body visual yaw per-tick so other players see the rotation
-        // (and so first-person body model swings correctly). Does NOT touch
-        // mc.thePlayer.rotationYaw — first-person camera stays on the user's mouse.
-        if (req.syncVisualHead) {
-            syncVisualHead();
-        }
+    /** Add one GCD-aligned step, accumulating in double. See {@link #serverYawAcc}. */
+    private static void applyStep(float yawStep, float pitchStep) {
+        serverYawAcc += yawStep;
+        serverPitchAcc = MathHelper.clamp_double(serverPitchAcc + pitchStep, -89.5, 89.5);
+        serverYaw = (float) serverYawAcc;
+        serverPitch = (float) serverPitchAcc;
     }
 
     /**
-     * Critically-damped spring step, capped by Fitts-law velocity scaling.
+     * Damping that puts the discrete spring exactly on the critical boundary.
+     *
+     * <p>The step below is {@code v += k*err - c*v; x += v}, whose error state
+     * {@code [err, v]} has characteristic polynomial
+     * {@code λ² - (2 - k - c)λ + (1 - c)}. The roots collide when
+     * {@code c = 2√k - k}, giving a repeated root of {@code 1 - √k}: the fastest
+     * monotone approach available, with no overshoot at all.
+     *
+     * <p>COMBAT used to carry a hard-coded 0.78 against k=0.55, where critical is
+     * 0.93. That put the roots complex (|λ| 0.47, ~8 tick period) so every sweep
+     * sailed ~5% past the target and rang its way back. On a 60° acquisition
+     * that is a 3° overshoot followed by a reversal — the head snap.
+     */
+    private static float criticalDamping(float stiffness) {
+        return 2f * (float) Math.sqrt(stiffness) - stiffness;
+    }
+
+    /**
+     * One spring step on one axis, capped by Fitts-law velocity scaling.
      * Big errors → high cap (fast sweep); small errors → low cap (precise tracking).
      */
     private static float stepAxis(float err, float capDeg, float minSpd,
                                   float stiffness, float damping, boolean isYaw) {
         float vel = isYaw ? yawVel : pitchVel;
 
-        // Fitts-ish cap: cap = baseCap * log2(1 + |err|/refDist)/log2(1 + maxRef/refDist)
-        // Practically: clamp the cap based on remaining distance so small errors
-        // don't get full cap velocity (avoids zip-snap behaviour).
+        // Fitts-ish cap: clamp the cap based on remaining distance so small
+        // errors don't get full cap velocity (avoids zip-snap behaviour).
         float distScaled = (float) Math.min(1.0,
                 Math.log(1.0 + Math.abs(err) / 6.0) / Math.log(1.0 + 60.0 / 6.0));
         float effectiveCap = Math.max(minSpd, capDeg * (0.20f + 0.80f * distScaled));
 
-        // Spring physics: a = stiffness*err - damping*vel  (pseudo-discrete; dt = 1 tick)
-        float accel = stiffness * err - damping * vel;
-        vel += accel;
+        vel += stiffness * err - damping * vel;
 
-        // Cap velocity
         if (vel > effectiveCap) vel = effectiveCap;
         if (vel < -effectiveCap) vel = -effectiveCap;
 
@@ -386,19 +645,6 @@ public final class SilentAim {
     }
 
     /**
-     * 0.0 .. 1.0 — how settled we are on target. 1.0 = within 0.6° both axes.
-     * Used to scale settle-tremor amplitude up smoothly as we arrive.
-     */
-    private static float settleCloseness(float yawErrAbs, float pitErrAbs) {
-        float worst = Math.max(yawErrAbs, pitErrAbs);
-        if (worst >= 6f) return 0f;
-        if (worst <= 0.6f) return 1f;
-        // smoothstep from 6° down to 0.6°
-        float t = (6f - worst) / (6f - 0.6f);
-        return t * t * (3f - 2f * t);
-    }
-
-    /**
      * Snap a raw per-tick rotation step to an integer multiple of the player's
      * mouse-sensitivity GCD AND cap it so we never overshoot the remaining error,
      * keeping the result GCD-aligned in both cases.
@@ -408,68 +654,55 @@ public final class SilentAim {
      * {@code n*gcd}. If the spring would overshoot the target, we floor the
      * magnitude down to the largest {@code k*gcd} not exceeding |remaining|,
      * accepting that we may finish up to one GCD short of perfect alignment
-     * (well within rotReady's degree-scale thresholds).
+     * (well within every caller's degree-scale readiness threshold).
      */
     private static float snapStepToGcd(float rawStep, float remaining) {
         // Promote to double for snapping math — the multiplication n*gcd in
         // float can leave 1e-7 residuals that survive accumulation. Grim's
         // AimModulo360 tolerance is tight enough that even small float errors
         // can flag, especially after a long active period.
-        double gcd = (double) Utils.Player.getGcd();
+        double gcd = Utils.Player.getGcd();
         if (gcd <= 0.0) return rawStep;
 
-        long n = Math.round((double) rawStep / gcd);
-        double snapped = (double) n * gcd;
+        long n = Math.round(rawStep / gcd);
+        double snapped = n * gcd;
 
         // Cap to largest GCD-multiple in the same direction not exceeding |remaining|.
         if (Math.signum(snapped) == Math.signum((double) remaining)
                 && Math.abs(snapped) > Math.abs((double) remaining)) {
             long k = (long) Math.floor(Math.abs((double) remaining) / gcd);
-            snapped = Math.copySign((double) k * gcd, (double) remaining);
+            snapped = Math.copySign(k * gcd, remaining);
         }
         return (float) snapped;
-    }
-
-    /**
-     * Sync visible head-yaw/render-yaw to the server yaw. Only mc.thePlayer.rotationYaw
-     * itself is left untouched (so first-person camera tracks the user's mouse).
-     */
-    private static void syncVisualHead() {
-        if (mc.thePlayer == null) return;
-        if (currentReq != null && !currentReq.syncVisualHead) return;
-        mc.thePlayer.prevRotationYawHead = mc.thePlayer.rotationYawHead;
-        mc.thePlayer.rotationYawHead = serverYaw;
-        mc.thePlayer.prevRenderYawOffset = mc.thePlayer.renderYawOffset;
-        mc.thePlayer.renderYawOffset += MathHelper.wrapAngleTo180_float(
-                serverYaw - mc.thePlayer.renderYawOffset) * 0.4f;
     }
 
     private static void seedFromPlayer() {
         if (mc.thePlayer == null) return;
         serverYaw = mc.thePlayer.rotationYaw;
         serverPitch = mc.thePlayer.rotationPitch;
+        serverYawAcc = serverYaw;
+        serverPitchAcc = serverPitch;
         prevServerYaw = serverYaw;
         prevServerPitch = serverPitch;
         yawVel = pitchVel = 0f;
     }
 
-    /* ===================================================================== */
-    /* Bus subscriber — decay activeFor and auto-apply to look/move           */
-    /* ===================================================================== */
+    private static void refreshContext() {
+        Object player = mc == null ? null : mc.thePlayer;
+        Object world = mc == null ? null : mc.theWorld;
+        if (player == trackedPlayer && world == trackedWorld) return;
 
-    @Subscribe
-    public void onUpdatePost(UpdateEvent e) {
-        if (!e.isPost()) return;
-        if (activeForTicks > 0) {
-            activeForTicks--;
-            if (activeForTicks == 0) {
-                yawVel = pitchVel = 0f;
-                reactionLeft = 0;
-                currentReq = null;
-                currentPriority = Integer.MIN_VALUE;
-            }
+        clearState();
+        trackedPlayer = player;
+        trackedWorld = world;
+        if (player != null) {
+            seedFromPlayer();
         }
     }
+
+    /* ===================================================================== */
+    /* Bus subscribers — auto-apply to look/move                              */
+    /* ===================================================================== */
 
     @Subscribe
     public void onLook(LookEvent e) {

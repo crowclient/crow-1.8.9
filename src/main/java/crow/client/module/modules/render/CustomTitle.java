@@ -81,7 +81,7 @@ public class CustomTitle extends Module {
         alpha255 = MathHelper.clamp_int(alpha255, 0, 255);
         if (alpha255 <= 8) return;
 
-        ScaledResolution sr = new ScaledResolution(mc);
+        ScaledResolution sr = crow.client.utils.RenderUtils.scaled();
         int sw = sr.getScaledWidth();
         int sh = sr.getScaledHeight();
         float cx = sw / 2.0F;
