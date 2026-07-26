@@ -135,7 +135,7 @@ public class KillAura extends Module {
         if (!Utils.Player.isPlayerInGame() || mc.currentScreen != null
                 || mc.thePlayer == null || mc.playerController == null
                 || (target != null && (!target.isEntityAlive()
-                    || mc.thePlayer.getDistanceToEntity(target) > reach.getInput()))) {
+                    || !inReach(target)))) {
             clearTargetState();
             return;
         }
@@ -160,18 +160,22 @@ public class KillAura extends Module {
         if (mouseDown.isToggled() && !Mouse.isButtonDown(0)) { clearTargetState(); return; }
         if (disableWhenFlying.isToggled() && mc.thePlayer.capabilities.isFlying) { clearTargetState(); return; }
 
-        EntityLivingBase candidate = Targets.getTargetEntityNoFov(reach.getInput());
+        // Select over a wider radius than we enforce: selection is centre-based while
+        // the gate is eye-to-hitbox, and the latter reaches further in world terms,
+        // so a list built at the raw reach would omit legally hittable targets.
+        // inReach() is what actually decides.
+        EntityLivingBase candidate = Targets.getTargetEntityNoFov(effectiveReach() + 0.9D);
         EntityLivingBase entityTarget = candidate;
         if (target != null && target.isEntityAlive()
-                && mc.thePlayer.getDistanceToEntity(target) <= reach.getInput()
+                && inReach(target)
                 && candidate != null && candidate != target) {
-            double curDist = mc.thePlayer.getDistanceToEntity(target);
-            double newDist = mc.thePlayer.getDistanceToEntity(candidate);
+            double curDist = eyeDistanceToTarget(target);
+            double newDist = eyeDistanceToTarget(candidate);
             if (newDist >= curDist * 0.85) {
                 entityTarget = target;
             }
         }
-        if (entityTarget == null || !entityTarget.isEntityAlive() || mc.thePlayer.getDistanceToEntity(entityTarget) > reach.getInput()) {
+        if (entityTarget == null || !entityTarget.isEntityAlive() || !inReach(entityTarget)) {
             if (lastTargetId != -1
                     && System.currentTimeMillis() - lastTargetSeenMs > TARGET_PERSIST_MS) {
                 lastTargetId = -1;
@@ -188,7 +192,7 @@ public class KillAura extends Module {
         int currentId = target.getEntityId();
         if (currentId != lastTargetId) {
             targetAcquiredMs = System.currentTimeMillis();
-            reactionDelayMs = 150L + r.nextInt(140);
+            reactionDelayMs = 40L + r.nextInt(70);
             lastTargetId = currentId;
         }
         lastTargetSeenMs = System.currentTimeMillis();
@@ -286,7 +290,7 @@ public class KillAura extends Module {
         if (!Utils.Player.isPlayerInGame() || mc.currentScreen != null
                 || mc.thePlayer == null || mc.playerController == null
                 || target == null || locked || !target.isEntityAlive()
-                || mc.thePlayer.getDistanceToEntity(target) > reach.getInput()) {
+                || !inReach(target)) {
             clearTargetState();
             return;
         }
@@ -426,7 +430,7 @@ public class KillAura extends Module {
                 // nothing — the server cannot see a decision not to attack, only
                 // the packets, and a genuinely missed swing looks the same as a
                 // slightly late one.
-                if (mc.thePlayer.getDistanceToEntity(target) <= reach.getInput()) {
+                if (inReach(target)) {
                     // Swing FIRST. Minecraft.clickMouse calls swingItem() before
                     // attackEntity(), so the wire order is C0A then C02. Sending
                     // C02 first is Grim's PacketOrderB — a vanilla client can
@@ -581,11 +585,62 @@ public class KillAura extends Module {
      * when the ray is comfortably inside it, not clipping an edge that a tick of
      * position desync could move out from under us.
      */
+    /** Vanilla's entity interaction range, and the ceiling Grim enforces. */
+    private static final double MAX_LEGAL_REACH = 3.0D;
+
+    /**
+     * Distance from our eye to the nearest point of the target's hitbox — the
+     * same quantity Grim measures with {@code ReachUtils.getMinReachToBox}.
+     *
+     * <p>Every range gate here used {@code getDistanceToEntity}, which is centre
+     * to centre. That is a different and consistently larger number: it measures
+     * from our feet-centre to their feet-centre, while the server measures from
+     * our eye to the closest corner of their box. Gating on it threw away real,
+     * legal reach — most of it when there is any height difference, since the
+     * vertical gap counts fully towards a centre distance and not at all towards
+     * a box distance once the eye is level with them.
+     */
+    private double eyeDistanceToTarget(EntityLivingBase en) {
+        if (en == null || mc.thePlayer == null) return Double.MAX_VALUE;
+
+        net.minecraft.util.AxisAlignedBB b = en.getEntityBoundingBox();
+        double ex = mc.thePlayer.posX;
+        double ey = mc.thePlayer.posY + mc.thePlayer.getEyeHeight();
+        double ez = mc.thePlayer.posZ;
+
+        double dx = Math.max(Math.max(b.minX - ex, 0.0D), ex - b.maxX);
+        double dy = Math.max(Math.max(b.minY - ey, 0.0D), ey - b.maxY);
+        double dz = Math.max(Math.max(b.minZ - ez, 0.0D), ez - b.maxZ);
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    /**
+     * The reach we actually enforce: the user's setting, but never past vanilla's
+     * 3.0. Grim's own comment puts its cancellation point at "3.05+ or so"
+     * measured eye-to-hitbox, and the setting now means eye-to-hitbox rather than
+     * centre-to-centre, so an unclamped 3.05 would sit exactly on that line.
+     */
+    private double effectiveReach() {
+        return Math.min(reach.getInput(), MAX_LEGAL_REACH);
+    }
+
+    private boolean inReach(EntityLivingBase en) {
+        return eyeDistanceToTarget(en) <= effectiveReach();
+    }
+
     private boolean cameraAlreadyOnTarget() {
+        return rayHitsTarget(mc.thePlayer == null ? 0f : mc.thePlayer.rotationYaw,
+                mc.thePlayer == null ? 0f : mc.thePlayer.rotationPitch, 0.10D);
+    }
+
+    /**
+     * Whether a look ray at {@code yaw}/{@code pitch} from our eye intersects the
+     * target's hitbox within reach — the same test Grim's Reach check runs
+     * against the look vectors our flying packets carry.
+     */
+    private boolean rayHitsTarget(float yaw, float pitch, double margin) {
         if (target == null || mc.thePlayer == null) return false;
 
-        float yaw = mc.thePlayer.rotationYaw;
-        float pitch = mc.thePlayer.rotationPitch;
         double yawRad = Math.toRadians(yaw);
         double pitchRad = Math.toRadians(pitch);
         double cosPitch = Math.cos(pitchRad);
@@ -598,7 +653,6 @@ public class KillAura extends Module {
         double eyeY = mc.thePlayer.posY + mc.thePlayer.getEyeHeight();
         double eyeZ = mc.thePlayer.posZ;
 
-        double margin = 0.10D;
         net.minecraft.util.AxisAlignedBB box = target.getEntityBoundingBox();
         double minX = box.minX + margin, maxX = box.maxX - margin;
         double minY = box.minY + margin, maxY = box.maxY - margin;
@@ -607,7 +661,7 @@ public class KillAura extends Module {
 
         // Slab method: the ray hits when the three per-axis entry/exit intervals
         // overlap, and that overlap lies ahead of us and within reach.
-        double near = 0.0D, far = reach.getInput();
+        double near = 0.0D, far = effectiveReach();
         double[][] slabs = {
             { dirX, eyeX, minX, maxX },
             { dirY, eyeY, minY, maxY },
@@ -684,15 +738,37 @@ public class KillAura extends Module {
         return new float[] { yaw, MathHelper.clamp_float(pitch, -89.5F, 89.5F) };
     }
 
+    /**
+     * Whether the rotation we have actually reported will register as a hit.
+     *
+     * <p>This used to be a fixed angular tolerance — 12.5° of yaw, 10.5° of
+     * pitch, against the desired rotation. That is a proxy for the real question
+     * and it is wrong in both directions, because the angle a hitbox subtends
+     * depends entirely on range. At 3 blocks a player is about ±4° wide, so 12.5°
+     * happily threw attacks whose ray missed completely — those are Grim's
+     * Hitboxes flag, the one with a setback attached. At half a block they are
+     * ±31° wide, so the same 12.5° refused attacks that would have landed
+     * cleanly, which is a large share of the damage in exactly the range where
+     * fights are decided.
+     *
+     * <p>So ask the real question instead, the same way Grim asks it: cast the
+     * ray and intersect the box. Fewer flags and more hits at once, from the same
+     * change.
+     *
+     * <p>Both the previous and current reported rotation count, because our C02
+     * reaches the server ahead of this tick's C03 — so the look it validates
+     * against is the previous one — and Grim itself builds {@code possibleLookDirs}
+     * from the current and last look and passes if any of them intercepts
+     * (Reach.java:267-277). The margin shrinks the box slightly so we only fire
+     * when the ray is properly inside it rather than clipping an edge that a tick
+     * of position desync could move out from under us.
+     */
     private boolean isAimedAtTarget() {
-        if (target == null) {
-            return false;
-        }
-        float thrYaw = 12.5F + ThreadLocalRandom.current().nextFloat() * 2.5F;
-        float thrPitch = 10.5F + ThreadLocalRandom.current().nextFloat() * 2.0F;
-        float yawDiff = Math.abs(MathHelper.wrapAngleTo180_float(targetYaw - SilentAim.getServerYaw()));
-        float pitchDiff = Math.abs(targetPitch - SilentAim.getServerPitch());
-        return yawDiff < thrYaw && pitchDiff < thrPitch;
+        if (target == null) return false;
+
+        double margin = 0.05D;
+        return rayHitsTarget(SilentAim.getPrevServerYaw(), SilentAim.getPrevServerPitch(), margin)
+                || rayHitsTarget(SilentAim.getServerYaw(), SilentAim.getServerPitch(), margin);
     }
 
     private void tickAimDrift(ThreadLocalRandom r) {
