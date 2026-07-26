@@ -196,15 +196,40 @@ public class KillAura extends Module {
         double heightFactor = 0.975D + r.nextDouble() * 0.018D;
         tickAimDrift(r);
 
-        float[] rot = aimPoint(heightFactor, 0.03F + aimDriftPitch * 0.02F);
-        targetYaw = rot[0] + aimDriftYaw;
-        targetPitch = rot[1];
+        // Walk normally whenever we possibly can.
+        //
+        // Grim only demands that the look ray carried by the flying packet
+        // actually intersects the target's hitbox — Reach raycasts it and a miss
+        // is the Hitboxes flag. It does not demand that we point at any
+        // particular part of them. So when your own view already lands on the
+        // hitbox, the correct move is to send your view unchanged and deviate by
+        // nothing at all.
+        //
+        // That matters far beyond tidiness: the movement remap is a no-op while
+        // the reported yaw is within 22.5° of the camera, because your raw input
+        // is then already the nearest grid direction. Offset zero means movement
+        // is bit-for-bit vanilla, with no remap engaged and nothing to feel. In
+        // ordinary play — looking roughly at whoever you are fighting — that is
+        // the case nearly all the time, so the aura only deviates on the ticks
+        // where your aim genuinely was not on them.
+        //
+        // Randomisation and drift are skipped on those ticks too. Their whole
+        // point is to keep a synthetic rotation from looking synthetic, and this
+        // rotation is not synthetic — it is yours.
+        if (cameraAlreadyOnTarget()) {
+            targetYaw = mc.thePlayer.rotationYaw;
+            targetPitch = mc.thePlayer.rotationPitch;
+        } else {
+            float[] rot = aimPoint(heightFactor, 0.03F + aimDriftPitch * 0.02F);
+            targetYaw = rot[0] + aimDriftYaw;
+            targetPitch = rot[1];
 
-        if (randomizeRotation.isToggled()) {
+            if (randomizeRotation.isToggled()) {
 
-            targetYaw += (float) (r.nextGaussian() * 0.42);
-            targetPitch += (float) (r.nextGaussian() * 0.22);
-            targetPitch = MathHelper.clamp_float(targetPitch, -90.0F, 90.0F);
+                targetYaw += (float) (r.nextGaussian() * 0.42);
+                targetPitch += (float) (r.nextGaussian() * 0.22);
+                targetPitch = MathHelper.clamp_float(targetPitch, -90.0F, 90.0F);
+            }
         }
 
         SilentAim.Request req = new SilentAim.Request();
@@ -518,6 +543,65 @@ public class KillAura extends Module {
     }
 
     public double getReach() { return reach.getInput(); }
+
+    /**
+     * Whether the player's own view already puts the look ray on the target's
+     * hitbox, in which case there is nothing to correct and we can leave the
+     * rotation completely alone.
+     *
+     * <p>This mirrors what Grim's Reach check does to us: cast the ray the
+     * flying packet will carry out to our reach and intersect it with the
+     * target's box. The box is shrunk by {@code margin} so we only claim a hit
+     * when the ray is comfortably inside it, not clipping an edge that a tick of
+     * position desync could move out from under us.
+     */
+    private boolean cameraAlreadyOnTarget() {
+        if (target == null || mc.thePlayer == null) return false;
+
+        float yaw = mc.thePlayer.rotationYaw;
+        float pitch = mc.thePlayer.rotationPitch;
+        double yawRad = Math.toRadians(yaw);
+        double pitchRad = Math.toRadians(pitch);
+        double cosPitch = Math.cos(pitchRad);
+
+        double dirX = -Math.sin(yawRad) * cosPitch;
+        double dirY = -Math.sin(pitchRad);
+        double dirZ = Math.cos(yawRad) * cosPitch;
+
+        double eyeX = mc.thePlayer.posX;
+        double eyeY = mc.thePlayer.posY + mc.thePlayer.getEyeHeight();
+        double eyeZ = mc.thePlayer.posZ;
+
+        double margin = 0.10D;
+        net.minecraft.util.AxisAlignedBB box = target.getEntityBoundingBox();
+        double minX = box.minX + margin, maxX = box.maxX - margin;
+        double minY = box.minY + margin, maxY = box.maxY - margin;
+        double minZ = box.minZ + margin, maxZ = box.maxZ - margin;
+        if (minX >= maxX || minY >= maxY || minZ >= maxZ) return false;
+
+        // Slab method: the ray hits when the three per-axis entry/exit intervals
+        // overlap, and that overlap lies ahead of us and within reach.
+        double near = 0.0D, far = reach.getInput();
+        double[][] slabs = {
+            { dirX, eyeX, minX, maxX },
+            { dirY, eyeY, minY, maxY },
+            { dirZ, eyeZ, minZ, maxZ },
+        };
+        for (double[] s : slabs) {
+            double d = s[0], origin = s[1], lo = s[2], hi = s[3];
+            if (Math.abs(d) < 1.0E-8D) {
+                if (origin < lo || origin > hi) return false;
+                continue;
+            }
+            double t1 = (lo - origin) / d;
+            double t2 = (hi - origin) / d;
+            if (t1 > t2) { double tmp = t1; t1 = t2; t2 = tmp; }
+            if (t1 > near) near = t1;
+            if (t2 < far) far = t2;
+            if (near > far) return false;
+        }
+        return true;
+    }
 
     /**
      * Yaw/pitch to the nearest point on the target's hitbox, rather than to its
