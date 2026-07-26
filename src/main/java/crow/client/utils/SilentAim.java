@@ -290,11 +290,12 @@ public final class SilentAim {
      * the grid, which is why it needs no "move fix" toggle and cannot desync.
      *
      * <p>ponytail: eight directions means the result can sit up to 22.5° off the
-     * direction asked for, and that ceiling is inherent — a rotated yaw simply
-     * has no other legal directions to offer. In practice the aim and the camera
-     * both point near the target, so the offset is small and the snap rarely
-     * bites. Sub-grid accuracy would need off-grid inputs, which is the desync
-     * this exists to avoid.
+     * direction asked for, and while sprinting only the forward-positive three
+     * are legal, which widens that to 45°. Both ceilings are inherent — a rotated
+     * yaw has no other legal directions to offer, and vanilla cannot sprint
+     * sideways either. In practice the aim and the camera both point near the
+     * target, so the offset is small and the snap rarely bites. Sub-grid accuracy
+     * would need off-grid inputs, which is the desync this exists to avoid.
      */
     public static void applyToMove(MoveInputEvent e) {
         if (!active) return;
@@ -317,9 +318,20 @@ public final class SilentAim {
         double srv = Math.toRadians(serverYaw);
         double sinSrv = Math.sin(srv), cosSrv = Math.cos(srv);
 
+        // Vanilla can only sprint forwards: EntityPlayerSP cancels the sprint as
+        // soon as movementInput.moveForward drops below 0.8 (EntityPlayerSP:794).
+        // Sprint state is still driven by the raw input — we never touch
+        // movementInput — so emitting a sideways or backward direction while the
+        // sprint flag is set describes a movement no vanilla client can produce,
+        // and the server's rebuild misses by the full grid error. That is the
+        // Simulation offset: 2*v*sin(θ/2) at walking speed for a 45° miss is
+        // ≈0.0985, which is exactly the value that kept repeating in the log.
+        // While sprinting, restrict the candidates to the forward-positive arc.
+        boolean sprinting = mc.thePlayer != null && mc.thePlayer.isSprinting();
+
         int bestF = 0, bestS = 0;
         double bestDot = -Double.MAX_VALUE, heldDot = -Double.MAX_VALUE;
-        for (int fi = -1; fi <= 1; fi++) {
+        for (int fi = sprinting ? 1 : -1; fi <= 1; fi++) {
             for (int si = -1; si <= 1; si++) {
                 if (fi == 0 && si == 0) continue;
                 double vx = si * cosSrv - fi * sinSrv;
