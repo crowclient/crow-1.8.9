@@ -297,10 +297,19 @@ public class KillAura extends Module {
 
         ticksSinceAttack++;
         boolean reacted = System.currentTimeMillis() - targetAcquiredMs >= reactionDelayMs;
-        float lastYawApplied = MathHelper.wrapAngleTo180_float(
-                SilentAim.getServerYaw() - SilentAim.getPrevServerYaw());
-        boolean stableAim = Math.abs(lastYawApplied) < 6.0F;
-        if (reacted && stableAim
+
+        // No aim-stability gate. This used to also require the yaw step applied
+        // this tick to be under 6°, which is precisely the condition that holds
+        // while you are moving: circling a target demands a high turn rate, so
+        // the step stays large even when the rotation is dead on them, and every
+        // one of those ticks silently dropped a click. That is the CPS loss while
+        // moving, and it hit hardest exactly when the fight was most active.
+        //
+        // It was redundant anyway. A large step only happens either mid-sweep,
+        // where isAimedAtTarget() already refuses because we are far off target,
+        // or while tracking, where being on target is the whole point. The
+        // readiness test below is the check that actually matters.
+        if (reacted
                 && ticksSinceAttack >= (int) attackTickDelay.getInput()
                 && isAimedAtTarget()) {
             crowClick();
@@ -364,7 +373,21 @@ public class KillAura extends Module {
         }
 
         if (leftUpTime > 0L && leftDownTime > 0L) {
-            if (System.currentTimeMillis() > leftUpTime && leftDown) {
+            // Press and release may resolve in the same tick. This was an
+            // if/else, so a click always burned two ticks: one to reach
+            // leftDownTime and set leftDown, another to reach leftUpTime and
+            // actually swing. At 50ms a tick that put a hard floor of 100ms on
+            // the interval however high the CPS slider went, and when the press
+            // tick was missed by a millisecond it slipped to 150ms — a 6.7 CPS
+            // that no setting could lift.
+            if (!leftDown && System.currentTimeMillis() > leftDownTime) {
+                leftDown = true;
+            }
+            // >= not >: a tick lands exactly on the deadline whenever the
+            // interval is a multiple of 50ms, which 10 CPS is exactly. Missing it
+            // by a strict comparison pushed that click a whole tick out and
+            // turned a 10 CPS setting into 6.7.
+            if (System.currentTimeMillis() >= leftUpTime && leftDown) {
                 // No stopUsingItem() here. EntityPlayer.stopUsingItem is client
                 // side only — it sends nothing, so it used to clear our own view
                 // of the block while the server carried on believing we were
@@ -385,8 +408,6 @@ public class KillAura extends Module {
                 ticksSinceAttack = 0;
                 genLeftTimings();
                 leftDown = false;
-            } else if (System.currentTimeMillis() > leftDownTime) {
-                leftDown = true;
             }
         } else {
             genLeftTimings();
