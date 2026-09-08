@@ -1,6 +1,7 @@
 package crow.client.module;
 
 import crow.client.module.Module.ModuleCategory;
+import crow.client.module.modules.client.GuiModule;
 
 import java.util.ArrayList;
 import java.util.List;
