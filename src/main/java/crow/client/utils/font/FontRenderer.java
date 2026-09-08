@@ -84,8 +84,7 @@ public class FontRenderer extends CFont {
 
         CFont.CharData[] currentData = this.charData;
         float alpha = (float) ((color >> 24) & 255) / 255f;
-        boolean randomCase = false, bold = false, italic = false, strikethrough = false, underline = false,
-                render = true;
+        boolean randomCase = false, bold = false, italic = false, strikethrough = false, underline = false;
         x *= 2;
         y = (y - 3) * 2;
         GL11.glPushMatrix();
@@ -217,8 +216,7 @@ public class FontRenderer extends CFont {
 
         CFont.CharData[] currentData = this.charData;
         float alpha = (float) ((color >> 24) & 255) / 255f;
-        boolean randomCase = false, bold = false, italic = false, strikethrough = false, underline = false,
-                render = true;
+        boolean randomCase = false, bold = false, italic = false, strikethrough = false, underline = false;
         x *= 2;
         y = (y - 3) * 2;
         GL11.glPushMatrix();
@@ -352,8 +350,7 @@ public class FontRenderer extends CFont {
 
         CFont.CharData[] currentData = this.charData;
         float alpha = (float) ((color >> 24) & 0xFF) / 255f;
-        boolean randomCase = false, bold = false, italic = false, strikethrough = false, underline = false,
-                render = true;
+        boolean randomCase = false, bold = false, italic = false, strikethrough = false, underline = false;
         x *= 2;
         y = (y - 3) * 2;
         GL11.glPushMatrix();
@@ -478,17 +475,11 @@ public class FontRenderer extends CFont {
 
         float width = 0;
         CFont.CharData[] currentData = charData;
-        boolean bold = false, italic = false;
 
         for (int index = 0; index < text.length(); index++) {
             char character = text.charAt(index);
 
             if (character == '\u00a7') {
-                int colorIndex = "0123456789abcdefklmnor".indexOf(character);
-
-                bold = false;
-                italic = false;
-
                 ++index;
             } else if (character < currentData.length)
 				width += (currentData[character].width - 8.3f) + charOffset;
@@ -503,17 +494,11 @@ public class FontRenderer extends CFont {
 
         float width = 0;
         CFont.CharData[] currentData = charData;
-        boolean bold = false, italic = false;
 
         for (int index = 0; index < text.length(); index++) {
             char c = text.charAt(index);
 
             if (c == '\u00a7') {
-                int colorIndex = "0123456789abcdefklmnor".indexOf(c);
-
-                bold = false;
-                italic = false;
-
                 ++index;
             } else if (c < currentData.length)
 				width += (currentData[c].width - kerning) + charOffset;

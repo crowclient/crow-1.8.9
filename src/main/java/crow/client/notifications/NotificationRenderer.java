@@ -11,7 +11,6 @@ import crow.client.module.modules.client.GuiModule;
 import crow.client.module.modules.render.Notifications;
 import crow.client.utils.Utils;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.Gui;
 
 public class NotificationRenderer {
     public static final NotificationRenderer notificationRenderer = new NotificationRenderer();
@@ -38,7 +37,7 @@ public class NotificationRenderer {
                 || ClientConfig.applyingConfig)
             return;
 
-        if (!m.getClass().equals(Gui.class)) {
+        if (!m.getClass().equals(crow.client.module.modules.client.GuiModule.class)) {
             String s = m.isEnabled() ? "enabled" : "disabled";
             NotificationManager
                     .show(new Notification(NotificationType.INFO, "Module " + s, m.getName() + " has been " + s, 1));

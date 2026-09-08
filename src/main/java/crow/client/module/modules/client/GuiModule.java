@@ -145,7 +145,7 @@ public class GuiModule extends Module {
     }
 
     public static int getDisabledTextRGB(int delay) {
-        return  getPresetMode().disabledTextRGB.color(0);
+        return  getPresetMode().disabledTextRGB.color(delay);
     }
 
     public static int getDisabledTextRGB() {

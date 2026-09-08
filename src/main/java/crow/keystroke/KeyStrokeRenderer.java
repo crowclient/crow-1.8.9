@@ -45,7 +45,7 @@ public class KeyStrokeRenderer {
     }
 
     public void renderKeystrokes() {
-        KeyStroke f = KeyStrokeMod.getKeyStroke();
+        KeyStrokeMod.getKeyStroke();
         if (KeyStroke.enabled) {
             int x = KeyStroke.x;
             int y = KeyStroke.y;
